@@ -88,14 +88,14 @@ input[type="file"]{display:none;}
 
 <div class="loading-overlay hidden" id="loadingOverlay">
   <div class="spinner"></div>
-  <div class="loading-text" style="font-weight:bold;">運算中... 正在處理數據</div>
+  <div class="loading-text" style="font-weight:bold;">運算中... 正在處理歷史全區間數據</div>
 </div>
 
 <div class="wrap">
   <div class="hdr">
     <div class="hdr-left">
-      <div class="hdr-title">🛡️ VOO 月週期動態 SOP <span class="v">7.5 FRED 整合版</span></div>
-      <div class="hdr-sub">整合 FRED API ｜ 手動 VIX 覆蓋 ｜ 嚴格月定額回測</div>
+      <div class="hdr-title">🛡️ VOO 月週期動態 SOP <span class="v">7.5 FRED 全區間版</span></div>
+      <div class="hdr-sub">整合 FRED API ｜ 手動 CAPE 覆蓋 ｜ 嚴格月定額回測</div>
     </div>
     <div id="dataSourceBadge" style="font-size:12px;padding:4px 12px;border:1px solid var(--border-hi);color:var(--muted);font-family:monospace;border-radius:4px;">● 等待載入數據</div>
   </div>
@@ -117,7 +117,7 @@ input[type="file"]{display:none;}
     <div class="db-container">
       <div class="db-box" style="border-color:var(--blue-dim); background:rgba(0, 26, 61, 0.2);">
         <h3>🤖 第二步：API 連線與手動覆蓋設定</h3>
-        <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">透過 Yahoo Finance 與 FRED API 自動抓取最新數據。若有手動輸入 VIX，將強制覆蓋最新一天的恐慌數值。</p>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">透過 Yahoo Finance 與 FRED API 自動抓取完整歷史數據。若輸入 CAPE，將強制覆蓋最新一天的本益比。</p>
         
         <div class="db-grid">
           <div class="db-item" style="grid-column: span 2;">
@@ -129,11 +129,11 @@ input[type="file"]{display:none;}
             <input type="password" id="fredKey" placeholder="輸入您的 FRED 金鑰...">
           </div>
           <div class="db-item" style="grid-column: span 2; border-top: 1px dashed var(--border-hi); padding-top: 12px; margin-top: 4px;">
-            <label style="color:var(--yellow);">最新 VIX 手動覆蓋 (選填)</label>
-            <input type="number" id="manualVix" placeholder="例如: 24.06" step="0.01">
+            <label style="color:var(--yellow);">最新 CAPE 手動覆蓋 (選填)</label>
+            <input type="number" id="manualCape" placeholder="例如: 38.93" step="0.01">
           </div>
         </div>
-        <button class="btn btn-primary" style="background:var(--blue);border-color:var(--blue);color:#000;" onclick="fetchWebData()">🔄 自動抓取並整併數據</button>
+        <button class="btn btn-primary" style="background:var(--blue);border-color:var(--blue);color:#000;" onclick="fetchWebData()">🔄 抓取歷史全區間並整併數據</button>
       </div>
 
       <div class="db-box" style="display:flex; flex-direction:column;">
@@ -278,7 +278,7 @@ function handleFileUpload(event) {
 async function fetchWebData() {
   let proxy = document.getElementById('apiProxy').value.trim();
   let fredKey = document.getElementById('fredKey').value.trim();
-  let manualVixInput = document.getElementById('manualVix').value.trim();
+  let manualCapeInput = document.getElementById('manualCape').value.trim();
   
   document.getElementById('loadingOverlay').classList.remove('hidden');
 
@@ -286,9 +286,9 @@ async function fetchWebData() {
     if (proxy && !proxy.includes('url=')) proxy += '?url=';
     const getUrl = (targetUrl) => proxy ? proxy + encodeURIComponent(targetUrl) : targetUrl;
     
-    // 1. 抓取 Yahoo 數據
+    // 1. 抓取 Yahoo 數據 (將 range=5y 改為 range=max，以抓取所有歷史資料)
     const getYf = async (ticker) => {
-      const url = getUrl(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=5y&interval=1d`);
+      const url = getUrl(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=max&interval=1d`);
       const res = await fetch(url);
       if(!res.ok) throw new Error(`Yahoo 連線失敗: ${ticker}`);
       const json = await res.json();
@@ -302,10 +302,10 @@ async function fetchWebData() {
       return dict;
     };
 
-    // 2. 抓取 FRED 數據
+    // 2. 抓取 FRED 數據 (移除 limit=100 讓其抓取全區間)
     const getFred = async (seriesId) => {
         if(!fredKey) return {}; // 無金鑰則略過
-        const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${fredKey}&file_type=json&sort_order=desc&limit=100`;
+        const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${fredKey}&file_type=json`;
         const fetchUrl = getUrl(url);
         const res = await fetch(fetchUrl);
         if(!res.ok) throw new Error(`FRED 連線失敗: ${seriesId}`);
@@ -330,47 +330,51 @@ async function fetchWebData() {
 
     sortedDates.forEach(d => {
         const existingIdx = rawData.findIndex(x => x.d === d);
-        
         let newRow = { d: d, sp: spData[d], vix: vixData[d] || 20.0, ew: ewData[d] || null };
-        
-        // ★ 手動覆蓋 VIX 邏輯：如果是最新的一天，且使用者有輸入手動 VIX，則強制替換
-        if (d === latestDate && manualVixInput) {
-            newRow.vix = parseFloat(manualVixInput);
-        }
 
-        // 整合 FRED 數據 (如果 API 有回傳則優先使用)
         let newHy = hyData[d] !== undefined ? hyData[d] : null;
         let newTips = tipsData[d] !== undefined ? tipsData[d] : null;
         let newIe = ieData[d] !== undefined ? ieData[d] : null;
+
+        let lastHy = null, lastTips = null, lastCape = null, lastIe = null;
+        if(rawData.length > 0) {
+            let lastValid = rawData[rawData.length-1];
+            lastHy = lastValid.hy; lastTips = lastValid.tips; lastCape = lastValid.cape; lastIe = lastValid.ie;
+        }
         
+        // 優先保留已有歷史紀錄或以向前填充法(Forward Fill)銜接
         if(existingIdx > -1) {
             newRow.hy = newHy !== null ? newHy : rawData[existingIdx].hy;
             newRow.tips = newTips !== null ? newTips : rawData[existingIdx].tips;
             newRow.ie = newIe !== null ? newIe : rawData[existingIdx].ie;
-            newRow.cape = rawData[existingIdx].cape; // CAPE 維持不變
-            newRow.ew = rawData[existingIdx].ew || newRow.ew; 
-            rawData[existingIdx] = newRow;
+            newRow.cape = rawData[existingIdx].cape;
+            newRow.ew = rawData[existingIdx].ew || newRow.ew;
         } else {
-            // 向前填充機制 (Forward Fill)
-            let lastHy = null, lastTips = null, lastCape = null, lastIe = null;
-            if(rawData.length > 0) {
-                let lastValid = rawData[rawData.length-1];
-                lastHy = lastValid.hy; lastTips = lastValid.tips; lastCape = lastValid.cape; lastIe = lastValid.ie;
-            }
             newRow.hy = newHy !== null ? newHy : lastHy; 
             newRow.tips = newTips !== null ? newTips : lastTips; 
             newRow.ie = newIe !== null ? newIe : lastIe; 
             newRow.cape = lastCape;
+        }
+
+        // ★ 手動覆蓋 CAPE 邏輯：如果是最新的一天，且有填寫數值，則強制寫入 CAPE
+        if (d === latestDate && manualCapeInput) {
+            newRow.cape = parseFloat(manualCapeInput);
+        }
+
+        // 推入或覆寫到資料庫中
+        if (existingIdx > -1) {
+            rawData[existingIdx] = newRow;
+        } else {
             rawData.push(newRow);
         }
     });
 
     rawData.sort((a,b) => new Date(a.d) - new Date(b.d));
     updateDataDisplay();
-    alert(`✅ API 抓取與整併完成！` + (manualVixInput ? `\n\n📌 最新 VIX 已手動覆蓋為: ${manualVixInput}` : ""));
+    alert(`✅ API 歷史全區間抓取與整併完成！` + (manualCapeInput ? `\n\n📌 最新 CAPE 已手動覆蓋寫入為: ${manualCapeInput}` : ""));
     
-    // 清空手動輸入框，避免下次點擊不小心又覆蓋
-    document.getElementById('manualVix').value = '';
+    // 清空手動輸入框，避免下次點擊重複覆蓋
+    document.getElementById('manualCape').value = '';
 
   } catch (error) {
     console.error(error);
