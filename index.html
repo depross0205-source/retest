@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>長期投資 SOP 7.5 — 總經指標與 FRED 整合版</title>
+<title>長期投資 SOP 7.5 — 狀態判定與頻度調整版</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700;900&display=swap');
 
@@ -82,6 +82,13 @@ input[type="file"]{display:none;}
 .macro-item { background: var(--bg); padding: 8px; border-radius: 4px; border: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; }
 .macro-lbl { font-size: 10px; color: var(--muted); }
 .macro-val { font-size: 14px; font-weight: 700; font-family: 'IBM Plex Mono'; color: var(--white); }
+
+/* 最新狀態橫幅 */
+.status-banner { background: rgba(0, 229, 160, 0.05); border: 1px solid var(--green); padding: 16px; border-radius: 8px; margin-bottom: 20px; text-align: center; }
+.status-banner.meltdown { background: rgba(255, 77, 109, 0.05); border-color: var(--red); }
+.status-banner.panic { background: rgba(255, 184, 48, 0.05); border-color: var(--yellow); }
+.status-banner-title { font-size: 12px; font-weight: 700; margin-bottom: 6px; letter-spacing: 1px;}
+.status-banner-text { font-size: 22px; font-weight: 900; }
 </style>
 </head>
 <body>
@@ -94,8 +101,8 @@ input[type="file"]{display:none;}
 <div class="wrap">
   <div class="hdr">
     <div class="hdr-left">
-      <div class="hdr-title">🛡️ VOO 月週期動態 SOP <span class="v">7.5 FRED 全區間版</span></div>
-      <div class="hdr-sub">整合 FRED API ｜ 手動 CAPE 覆蓋 ｜ 嚴格月定額回測</div>
+      <div class="hdr-title">🛡️ VOO 月週期動態 SOP <span class="v">7.5 狀態判定版</span></div>
+      <div class="hdr-sub">整合 FRED API ｜ DCA 頻率調整 ｜ 最新狀態即時顯示</div>
     </div>
     <div id="dataSourceBadge" style="font-size:12px;padding:4px 12px;border:1px solid var(--border-hi);color:var(--muted);font-family:monospace;border-radius:4px;">● 等待載入數據</div>
   </div>
@@ -169,7 +176,15 @@ input[type="file"]{display:none;}
         <div class="config-row"><span>總資產 (萬 NTD)</span><input type="number" id="cfg_total" value="1000" class="config-input"></div>
         <div class="config-row"><span>首次單筆投入比例 (%)</span><input type="number" id="cfg_init_pct" value="30" class="config-input"></div>
         <div class="config-row"><span>黑天鵝預備金比例 (%)</span><input type="number" id="cfg_rsv_pct" value="10" class="config-input"></div>
-        <div class="config-row"><span>基礎 DCA 比例/月 (%)</span><input type="number" id="cfg_dca_pct" value="2.5" step="0.1" class="config-input"></div>
+        <div class="config-row"><span>基礎 DCA 比例/期 (%)</span><input type="number" id="cfg_dca_pct" value="2.5" step="0.1" class="config-input"></div>
+        <div class="config-row" style="border-top: 1px dashed var(--border-hi); padding-top: 8px; margin-top: 4px;">
+            <span style="color:var(--accent); font-weight:700;">DCA 執行頻率</span>
+            <select id="cfg_dca_freq" class="config-input" style="width: 90px; padding: 2px;">
+                <option value="1">1 個月</option>
+                <option value="2">2 個月</option>
+                <option value="3">3 個月</option>
+            </select>
+        </div>
       </div>
       <div class="config-group">
         <div class="config-group-title" style="color:var(--red);">🛡️ 2. 熔斷指標設定</div>
@@ -180,8 +195,8 @@ input[type="file"]{display:none;}
       <div class="config-group">
         <div class="config-group-title" style="color:var(--accent);">⚙️ 3. RSI 恐慌加碼設定</div>
         <div class="config-row"><span title="RSI低於此門檻，無論是否熔斷都會啟動專案投入">極度恐慌 RSI < </span><input type="number" id="cfg_rsi_panic" value="30" class="config-input"></div>
-        <div class="config-row"><span title="當 RSI<30 時，每月強制投入的總資金佔比">恐慌期 DCA 比例/月 (%)</span><input type="number" id="cfg_panic_dca_pct" value="5.0" step="0.1" class="config-input"></div>
-        <div class="config-row" style="margin-top:8px;"><span style="color:var(--muted); font-size:11px;">⚠️ 所有的投入與判定皆為「每月執行一次」。</span></div>
+        <div class="config-row"><span title="當 RSI<30 時，該期強制投入的總資金佔比">恐慌期 DCA 比例/期 (%)</span><input type="number" id="cfg_panic_dca_pct" value="5.0" step="0.1" class="config-input"></div>
+        <div class="config-row" style="margin-top:8px;"><span style="color:var(--muted); font-size:11px;">⚠️ 預備金抄底判定為「每月」，DCA 投入則依您設定的「頻率週期」執行。</span></div>
       </div>
       <div class="config-group">
         <div class="config-group-title" style="color:var(--green);">📅 4. 回測區間</div>
@@ -189,10 +204,15 @@ input[type="file"]{display:none;}
         <div class="config-row"><span>結束日期</span><input type="date" id="cfg_end" value="2026-03-20" class="config-input-date"></div>
       </div>
     </div>
-    <button class="btn btn-primary" style="padding:12px; font-size:16px;" onclick="runBacktest()">▶ 執行月週期動態回測</button>
+    <button class="btn btn-primary" style="padding:12px; font-size:16px;" onclick="runBacktest()">▶ 執行狀態判定回測</button>
   </div>
 
   <div class="panel" id="panel-result">
+    <div id="statusBanner" class="status-banner" style="display:none;">
+        <div class="status-banner-title" id="statusBannerTitle" style="color: var(--green);">🎯 最新系統狀態判定 (<span id="statusDate">--</span>)</div>
+        <div class="status-banner-text" id="statusText" style="color: var(--white);">--</div>
+    </div>
+
     <div class="metrics-grid" id="metricsGrid"></div>
     <div class="chart-wrap"><canvas id="navChart" height="400"></canvas></div>
   </div>
@@ -206,39 +226,27 @@ let rawData = [];
 let DATES=[], SP=[], VIX=[];
 let navChartIns = null;
 
-// ── 輔助函數：解析可能包含空值的欄位 ──
-function parseVal(val) {
-    if(!val || val.trim() === '') return null;
-    let n = parseFloat(val);
-    return isNaN(n) ? null : n;
-}
+// ── 輔助函數 ──
+function parseVal(val) { if(!val || val.trim() === '') return null; let n = parseFloat(val); return isNaN(n) ? null : n; }
 
-// ── 下載 CSV 函數 (整合 7 大指標) ──
+// ── 下載 CSV 函數 ──
 function exportCSV() {
     if(rawData.length === 0) { alert("無資料可下載"); return; }
     let csv = "Date,SP500,SP500EW,HY_Spread,TIPS_10Y,VIX,CAPE,T10YIE\n";
-    rawData.forEach(r => { 
-        csv += `${r.d},${r.sp?.toFixed(2)||''},${r.ew?.toFixed(2)||''},${r.hy?.toFixed(2)||''},${r.tips?.toFixed(2)||''},${r.vix?.toFixed(2)||''},${r.cape?.toFixed(2)||''},${r.ie?.toFixed(2)||''}\n`; 
-    });
+    rawData.forEach(r => { csv += `${r.d},${r.sp?.toFixed(2)||''},${r.ew?.toFixed(2)||''},${r.hy?.toFixed(2)||''},${r.tips?.toFixed(2)||''},${r.vix?.toFixed(2)||''},${r.cape?.toFixed(2)||''},${r.ie?.toFixed(2)||''}\n`; });
     let blob = new Blob([csv], {type: "text/csv;charset=utf-8;"});
     let url = URL.createObjectURL(blob);
-    let a = document.createElement('a');
-    a.href = url; 
-    a.download = "Macro_SOP_Data_" + rawData[rawData.length-1].d + ".csv";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    let a = document.createElement('a'); a.href = url; a.download = "Macro_SOP_Data_" + rawData[rawData.length-1].d + ".csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
 // ── 數據處理 ──
 function handleFileUpload(event) {
-  const file = event.target.files[0];
-  if(!file) return;
+  const file = event.target.files[0]; if(!file) return;
   const reader = new FileReader();
   reader.onload = function(e) {
     const lines = e.target.result.split('\n').filter(l => l.trim().length > 0);
     const headers = lines[0].split(',').map(h => h.trim().toUpperCase());
-    
     const idx = {
         d: headers.findIndex(h => h.includes('DATE') || h.includes('日期')),
         sp: headers.findIndex(h => h.includes('SP500') || h==='CLOSE'),
@@ -249,28 +257,20 @@ function handleFileUpload(event) {
         cape: headers.findIndex(h => h.includes('CAPE')),
         ie: headers.findIndex(h => h.includes('T10YIE'))
     };
-
     if (idx.d === -1 || idx.sp === -1) { alert("❌ CSV 必須至少包含 Date 與 SP500 欄位！"); return; }
 
     rawData = [];
     for(let i=1; i<lines.length; i++) {
-      const col = lines[i].split(','); 
-      if(col.length < 2) continue;
-      let dStr = col[idx.d].trim().replace(/\//g, '-');
+      const col = lines[i].split(','); if(col.length < 2) continue;
       rawData.push({ 
-          d: dStr, 
-          sp: parseVal(col[idx.sp]), 
-          ew: idx.ew > -1 ? parseVal(col[idx.ew]) : null,
-          hy: idx.hy > -1 ? parseVal(col[idx.hy]) : null,
-          tips: idx.tips > -1 ? parseVal(col[idx.tips]) : null,
-          vix: idx.vix > -1 ? parseVal(col[idx.vix]) : 20.0,
-          cape: idx.cape > -1 ? parseVal(col[idx.cape]) : null,
-          ie: idx.ie > -1 ? parseVal(col[idx.ie]) : null
+          d: col[idx.d].trim().replace(/\//g, '-'), sp: parseVal(col[idx.sp]), 
+          ew: idx.ew > -1 ? parseVal(col[idx.ew]) : null, hy: idx.hy > -1 ? parseVal(col[idx.hy]) : null,
+          tips: idx.tips > -1 ? parseVal(col[idx.tips]) : null, vix: idx.vix > -1 ? parseVal(col[idx.vix]) : 20.0,
+          cape: idx.cape > -1 ? parseVal(col[idx.cape]) : null, ie: idx.ie > -1 ? parseVal(col[idx.ie]) : null
       });
     }
-    rawData.sort((a,b) => new Date(a.d) - new Date(b.d));
-    updateDataDisplay();
-    alert("✅ 歷史資料庫上傳成功，已載入包含總經指標的數據！");
+    rawData.sort((a,b) => new Date(a.d) - new Date(b.d)); updateDataDisplay();
+    alert("✅ 歷史資料庫上傳成功！");
   };
   reader.readAsText(file);
 }
@@ -279,59 +279,41 @@ async function fetchWebData() {
   let proxy = document.getElementById('apiProxy').value.trim();
   let fredKey = document.getElementById('fredKey').value.trim();
   let manualCapeInput = document.getElementById('manualCape').value.trim();
-  
   document.getElementById('loadingOverlay').classList.remove('hidden');
 
   try {
     if (proxy && !proxy.includes('url=')) proxy += '?url=';
     const getUrl = (targetUrl) => proxy ? proxy + encodeURIComponent(targetUrl) : targetUrl;
     
-    // 1. 抓取 Yahoo 數據 (將 range=5y 改為 range=max，以抓取所有歷史資料)
     const getYf = async (ticker) => {
       const url = getUrl(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=max&interval=1d`);
-      const res = await fetch(url);
-      if(!res.ok) throw new Error(`Yahoo 連線失敗: ${ticker}`);
-      const json = await res.json();
-      let dict = {};
-      const chart = json.chart.result[0];
-      const times = chart.timestamp;
-      const closes = chart.indicators.quote[0].close;
-      for(let i=0; i<times.length; i++) {
-        if(closes[i] !== null) dict[new Date(times[i]*1000).toISOString().slice(0,10)] = closes[i];
-      }
+      const res = await fetch(url); if(!res.ok) throw new Error(`Yahoo 連線失敗: ${ticker}`);
+      const json = await res.json(); let dict = {}; const chart = json.chart.result[0];
+      const times = chart.timestamp; const closes = chart.indicators.quote[0].close;
+      for(let i=0; i<times.length; i++) { if(closes[i] !== null) dict[new Date(times[i]*1000).toISOString().slice(0,10)] = closes[i]; }
       return dict;
     };
 
-    // 2. 抓取 FRED 數據 (移除 limit=100 讓其抓取全區間)
     const getFred = async (seriesId) => {
-        if(!fredKey) return {}; // 無金鑰則略過
+        if(!fredKey) return {}; 
         const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${fredKey}&file_type=json`;
-        const fetchUrl = getUrl(url);
-        const res = await fetch(fetchUrl);
-        if(!res.ok) throw new Error(`FRED 連線失敗: ${seriesId}`);
-        const json = await res.json();
-        let dict = {};
-        if(json.observations) {
-            json.observations.forEach(obs => {
-                if(obs.value !== '.') dict[obs.date] = parseFloat(obs.value);
-            });
-        }
+        const res = await fetch(getUrl(url)); if(!res.ok) throw new Error(`FRED 連線失敗: ${seriesId}`);
+        const json = await res.json(); let dict = {};
+        if(json.observations) { json.observations.forEach(obs => { if(obs.value !== '.') dict[obs.date] = parseFloat(obs.value); }); }
         return dict;
     };
 
-    // 平行抓取所有能抓的資料
     const [spData, vixData, ewData, hyData, tipsData, ieData] = await Promise.all([ 
         getYf('^GSPC'), getYf('^VIX'), getYf('RSP'),
         getFred('BAMLH0A0HYM2'), getFred('DFII10'), getFred('T10YIE')
     ]);
     
     const sortedDates = Object.keys(spData).sort();
-    const latestDate = sortedDates[sortedDates.length - 1]; // 取得最新一天日期
+    const latestDate = sortedDates[sortedDates.length - 1]; 
 
     sortedDates.forEach(d => {
         const existingIdx = rawData.findIndex(x => x.d === d);
         let newRow = { d: d, sp: spData[d], vix: vixData[d] || 20.0, ew: ewData[d] || null };
-
         let newHy = hyData[d] !== undefined ? hyData[d] : null;
         let newTips = tipsData[d] !== undefined ? tipsData[d] : null;
         let newIe = ieData[d] !== undefined ? ieData[d] : null;
@@ -342,7 +324,6 @@ async function fetchWebData() {
             lastHy = lastValid.hy; lastTips = lastValid.tips; lastCape = lastValid.cape; lastIe = lastValid.ie;
         }
         
-        // 優先保留已有歷史紀錄或以向前填充法(Forward Fill)銜接
         if(existingIdx > -1) {
             newRow.hy = newHy !== null ? newHy : rawData[existingIdx].hy;
             newRow.tips = newTips !== null ? newTips : rawData[existingIdx].tips;
@@ -350,34 +331,19 @@ async function fetchWebData() {
             newRow.cape = rawData[existingIdx].cape;
             newRow.ew = rawData[existingIdx].ew || newRow.ew;
         } else {
-            newRow.hy = newHy !== null ? newHy : lastHy; 
-            newRow.tips = newTips !== null ? newTips : lastTips; 
-            newRow.ie = newIe !== null ? newIe : lastIe; 
-            newRow.cape = lastCape;
+            newRow.hy = newHy !== null ? newHy : lastHy; newRow.tips = newTips !== null ? newTips : lastTips; 
+            newRow.ie = newIe !== null ? newIe : lastIe; newRow.cape = lastCape;
         }
+        if (d === latestDate && manualCapeInput) newRow.cape = parseFloat(manualCapeInput);
 
-        // ★ 手動覆蓋 CAPE 邏輯：如果是最新的一天，且有填寫數值，則強制寫入 CAPE
-        if (d === latestDate && manualCapeInput) {
-            newRow.cape = parseFloat(manualCapeInput);
-        }
-
-        // 推入或覆寫到資料庫中
-        if (existingIdx > -1) {
-            rawData[existingIdx] = newRow;
-        } else {
-            rawData.push(newRow);
-        }
+        if (existingIdx > -1) rawData[existingIdx] = newRow; else rawData.push(newRow);
     });
 
-    rawData.sort((a,b) => new Date(a.d) - new Date(b.d));
-    updateDataDisplay();
-    alert(`✅ API 歷史全區間抓取與整併完成！` + (manualCapeInput ? `\n\n📌 最新 CAPE 已手動覆蓋寫入為: ${manualCapeInput}` : ""));
-    
-    // 清空手動輸入框，避免下次點擊重複覆蓋
+    rawData.sort((a,b) => new Date(a.d) - new Date(b.d)); updateDataDisplay();
+    alert(`✅ API 歷史全區間抓取與整併完成！` + (manualCapeInput ? `\n📌 最新 CAPE 已覆蓋為: ${manualCapeInput}` : ""));
     document.getElementById('manualCape').value = '';
 
   } catch (error) {
-    console.error(error);
     alert("❌ 抓取過程發生錯誤。請確認您的 FRED API 金鑰是否正確，或檢查 Proxy 連線。");
   } finally {
     document.getElementById('loadingOverlay').classList.add('hidden');
@@ -385,10 +351,7 @@ async function fetchWebData() {
 }
 
 function updateDataDisplay() {
-    DATES = rawData.map(x => x.d); 
-    SP = rawData.map(x => x.sp); 
-    VIX = rawData.map(x => x.vix);
-    
+    DATES = rawData.map(x => x.d); SP = rawData.map(x => x.sp); VIX = rawData.map(x => x.vix);
     document.getElementById('dbCountDisplay').textContent = rawData.length + " 筆";
     if(rawData.length > 0) {
         let lastNode = rawData[rawData.length-1];
@@ -396,7 +359,6 @@ function updateDataDisplay() {
         document.getElementById('dataSourceBadge').textContent = `● 系統就緒 (${rawData.length} 筆)`;
         document.getElementById('dataSourceBadge').style.color = 'var(--green)';
         
-        // 更新 UI 最新指標儀表板
         document.getElementById('latestDataPoint').style.display = 'block';
         document.getElementById('v_sp').textContent = lastNode.sp ? lastNode.sp.toFixed(2) : '--';
         document.getElementById('v_ew').textContent = lastNode.ew ? lastNode.ew.toFixed(2) : '--';
@@ -405,37 +367,25 @@ function updateDataDisplay() {
         document.getElementById('v_tips').textContent = lastNode.tips ? lastNode.tips.toFixed(2)+'%' : '--';
         document.getElementById('v_ie').textContent = lastNode.ie ? lastNode.ie.toFixed(2)+'%' : '--';
         document.getElementById('v_cape').textContent = lastNode.cape ? lastNode.cape.toFixed(2) : '--';
-        
         document.getElementById('dlBtn').style.display = 'block';
     }
 }
 
-// ── 以下為維持不變的回測引擎與繪圖函數 (精簡呈現) ──
+// ── 指標與回測 ──
 function calcRSI(prices, period) {
-    let rsi = new Array(prices.length).fill(50);
-    let gains = 0, losses = 0;
-    for(let i=1; i<=period && i<prices.length; i++){
-        let diff = prices[i] - prices[i-1];
-        if(diff >= 0) gains += diff; else losses -= diff;
-    }
+    let rsi = new Array(prices.length).fill(50); let gains = 0, losses = 0;
+    for(let i=1; i<=period && i<prices.length; i++){ let diff = prices[i] - prices[i-1]; if(diff >= 0) gains += diff; else losses -= diff; }
     let avgGain = gains / period; let avgLoss = losses / period;
     for(let i=period; i<prices.length; i++) {
-        let diff = prices[i] - prices[i-1];
-        let gain = diff >= 0 ? diff : 0; let loss = diff < 0 ? -diff : 0;
-        avgGain = (avgGain * (period-1) + gain) / period;
-        avgLoss = (avgLoss * (period-1) + loss) / period;
-        let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-        rsi[i] = 100 - (100 / (1 + rs));
+        let diff = prices[i] - prices[i-1]; let gain = diff >= 0 ? diff : 0; let loss = diff < 0 ? -diff : 0;
+        avgGain = (avgGain * (period-1) + gain) / period; avgLoss = (avgLoss * (period-1) + loss) / period;
+        let rs = avgLoss === 0 ? 100 : avgGain / avgLoss; rsi[i] = 100 - (100 / (1 + rs));
     }
     return rsi;
 }
 function calcSMA(prices, period) {
-    let sma = new Array(prices.length).fill(null);
-    let sum = 0;
-    for(let i=0; i<prices.length; i++) {
-        sum += prices[i]; if(i >= period) sum -= prices[i-period];
-        sma[i] = i >= period-1 ? sum / period : sum / (i+1); 
-    }
+    let sma = new Array(prices.length).fill(null); let sum = 0;
+    for(let i=0; i<prices.length; i++) { sum += prices[i]; if(i >= period) sum -= prices[i-period]; sma[i] = i >= period-1 ? sum / period : sum / (i+1); }
     return sma;
 }
 function calcRollingMax(prices, period) {
@@ -458,6 +408,9 @@ function runBacktest() {
       const PCT_RSV = parseFloat(document.getElementById('cfg_rsv_pct').value) / 100;
       const DCA_NORMAL = T_CAP * (parseFloat(document.getElementById('cfg_dca_pct').value) / 100);
       const DCA_PANIC = T_CAP * (parseFloat(document.getElementById('cfg_panic_dca_pct').value) / 100);
+      
+      const DCA_FREQ = parseInt(document.getElementById('cfg_dca_freq').value); // 讀取頻率
+      
       const MD_LOSS = parseFloat(document.getElementById('cfg_md_loss').value) / 100;
       const MD_SMA_PERIOD = parseInt(document.getElementById('cfg_sma').value);
       const MD_VIX = parseFloat(document.getElementById('cfg_vix').value);
@@ -472,6 +425,13 @@ function runBacktest() {
       let rsv_flags = { level1: false, level2: false, level3: false };
       let hist = [], initialPrice = null, bh_shares = 0;
 
+      let months_elapsed = DCA_FREQ - 1; // 初始化讓第一個月就能觸發 DCA
+      
+      // 用來記錄最新一天的「狀態燈號」
+      let latest_status_text = "尚無動作";
+      let latest_status_date = "--";
+      let latest_status_type = "normal"; // normal, meltdown, panic
+
       for(let i=0; i<rawData.length; i++) {
           if (DATES[i] < startDate || DATES[i] > endDate) continue;
           let p = SP[i]; let vix = VIX[i]; let rsi = arrRSI[i]; let sma = arrSMA[i]; let dd = (p - arrMax[i]) / arrMax[i];
@@ -484,21 +444,80 @@ function runBacktest() {
           let currMonth = new Date(DATES[i]).getMonth();
           if (currMonth !== c_m) {
               c_m = currMonth;
-              if (dd <= -0.15 && !rsv_flags.level1 && rsv_pool > 0) { let actual = Math.min(original_reserve * 0.30, rsv_pool); sh += actual / p; total_cost += actual; rsv_pool -= actual; rsv_flags.level1 = true; }
-              if (dd <= -0.25 && !rsv_flags.level2 && rsv_pool > 0) { let actual = Math.min(original_reserve * 0.40, rsv_pool); sh += actual / p; total_cost += actual; rsv_pool -= actual; rsv_flags.level2 = true; }
-              if (dd <= -0.35 && !rsv_flags.level3 && rsv_pool > 0) { let actual = Math.min(original_reserve * 0.30, rsv_pool); sh += actual / p; total_cost += actual; rsv_pool -= actual; rsv_flags.level3 = true; }
+              
+              let current_month_status = [];
+              let is_panic_this_month = false;
+              let is_meltdown_this_month = false;
+
+              // 1. 預備金抄底判定 (每個月皆判定一次)
+              if (dd <= -0.15 && !rsv_flags.level1 && rsv_pool > 0) { 
+                  let actual = Math.min(original_reserve * 0.30, rsv_pool); 
+                  sh += actual / p; total_cost += actual; rsv_pool -= actual; rsv_flags.level1 = true; 
+                  current_month_status.push("預備金抄底 (30%)");
+              }
+              if (dd <= -0.25 && !rsv_flags.level2 && rsv_pool > 0) { 
+                  let actual = Math.min(original_reserve * 0.40, rsv_pool); 
+                  sh += actual / p; total_cost += actual; rsv_pool -= actual; rsv_flags.level2 = true; 
+                  current_month_status.push("預備金抄底 (40%)");
+              }
+              if (dd <= -0.35 && !rsv_flags.level3 && rsv_pool > 0) { 
+                  let actual = Math.min(original_reserve * 0.30, rsv_pool); 
+                  sh += actual / p; total_cost += actual; rsv_pool -= actual; rsv_flags.level3 = true; 
+                  current_month_status.push("預備金抄底 (30%)");
+              }
               if (dd >= -0.05) { rsv_flags.level1=false; rsv_flags.level2=false; rsv_flags.level3=false; }
 
-              let current_loss = total_cost > 0 ? ((sh * p) - total_cost) / total_cost : 0;
-              let is_meltdown = (current_loss < -MD_LOSS) || (p < sma) || (vix > MD_VIX);
-              let target_dca = rsi < RSI_P ? DCA_PANIC : (!is_meltdown ? DCA_NORMAL : 0);
-              let actual_dca = Math.min(target_dca, dca_pool);
-              if (actual_dca > 0) { sh += actual_dca / p; total_cost += actual_dca; dca_pool -= actual_dca; }
+              // 2. 累加月份計數器並判定 DCA
+              months_elapsed++;
+              
+              if (months_elapsed >= DCA_FREQ) {
+                  let current_loss = total_cost > 0 ? ((sh * p) - total_cost) / total_cost : 0;
+                  let is_meltdown = (current_loss < -MD_LOSS) || (p < sma) || (vix > MD_VIX);
+                  let target_dca = 0;
+
+                  if (rsi < RSI_P) {
+                      target_dca = DCA_PANIC;
+                      current_month_status.push("恐慌加碼 (5.0%)");
+                      is_panic_this_month = true;
+                  } else if (is_meltdown) {
+                      target_dca = 0;
+                      current_month_status.push("熔斷保護 (暫停 DCA)");
+                      is_meltdown_this_month = true;
+                  } else {
+                      target_dca = DCA_NORMAL;
+                      current_month_status.push("標準 DCA (1倍)");
+                  }
+
+                  let actual_dca = Math.min(target_dca, dca_pool);
+                  if (actual_dca > 0) { 
+                      sh += actual_dca / p; total_cost += actual_dca; dca_pool -= actual_dca; 
+                  } else if (target_dca > 0) {
+                      current_month_status.push("DCA 資金已耗盡");
+                  }
+                  
+                  // 重置 DCA 計數器
+                  months_elapsed = 0; 
+              } else {
+                  // 未達設定的 DCA 頻率月份
+                  if(current_month_status.length === 0) {
+                      current_month_status.push(`等待 DCA 週期 (${months_elapsed}/${DCA_FREQ}個月)`);
+                  }
+              }
+
+              // 記錄最後一個月的狀態燈號
+              if (current_month_status.length > 0) {
+                  latest_status_text = current_month_status.join(" + ");
+                  latest_status_date = DATES[i];
+                  
+                  if (is_meltdown_this_month) latest_status_type = "meltdown";
+                  else if (is_panic_this_month || current_month_status[0].includes("抄底")) latest_status_type = "panic";
+                  else latest_status_type = "normal";
+              }
           }
           hist.push({ d: DATES[i], strat: (sh * p) + dca_pool + rsv_pool, bh: bh_shares * p });
       }
 
-      renderResult(hist, T_CAP);
+      renderResult(hist, T_CAP, latest_status_text, latest_status_date, latest_status_type);
       document.getElementById('loadingOverlay').classList.add('hidden');
       switchTab({target:document.querySelectorAll('.tab')[2]}, 'result');
   }, 100);
@@ -521,7 +540,31 @@ function calcPerf(hist, key, T_CAP) {
     return { mdd: (mdd*100).toFixed(2), cagr: (cagr*100).toFixed(2), sharpe: sharpe.toFixed(2), total: (totalRet*100).toFixed(1), finalVal: (hist[hist.length-1][key]).toLocaleString('en-US', {maximumFractionDigits:0}) };
 }
 
-function renderResult(hist, T_CAP) {
+function renderResult(hist, T_CAP, statusText, statusDate, statusType) {
+    // 渲染最新狀態橫幅
+    const banner = document.getElementById('statusBanner');
+    const bannerTitle = document.getElementById('statusBannerTitle');
+    const txt = document.getElementById('statusText');
+    const sDate = document.getElementById('statusDate');
+    
+    banner.style.display = 'block';
+    banner.className = 'status-banner'; // reset
+    if (statusType === 'meltdown') {
+        banner.classList.add('meltdown');
+        bannerTitle.style.color = 'var(--red)';
+        txt.style.color = 'var(--red)';
+    } else if (statusType === 'panic') {
+        banner.classList.add('panic');
+        bannerTitle.style.color = 'var(--yellow)';
+        txt.style.color = 'var(--yellow)';
+    } else {
+        bannerTitle.style.color = 'var(--green)';
+        txt.style.color = 'var(--white)';
+    }
+    txt.textContent = statusText;
+    sDate.textContent = statusDate;
+
+    // 渲染績效與圖表
     const pStrat = calcPerf(hist, 'strat', T_CAP); const pBH = calcPerf(hist, 'bh', T_CAP);
     const getCard = (title, p, css) => `<div class="metric-card ${css}"><div class="m-title">${title}</div><div class="m-row"><span>期末資產</span><span class="m-val" style="color:var(--white);">$${p.finalVal}</span></div><div class="m-row"><span>總報酬</span><span class="m-val">${parseFloat(p.total)>0?'+':''}${p.total}%</span></div><div class="m-row"><span>年化報酬</span><span class="m-val">${p.cagr}%</span></div><div class="m-row"><span>最大回撤</span><span class="m-val">${p.mdd}%</span></div><div class="m-row"><span>夏普值</span><span class="m-val">${p.sharpe}</span></div></div>`;
     document.getElementById('metricsGrid').innerHTML = getCard('🛡️ VOO 動態配置策略', pStrat, 'm-a') + getCard('📈 B&H (期初單筆全壓)', pBH, 'm-bh');
