@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>矛與盾 V9.60 — 網頁極速回測版</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700;900&display=swap');
+
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+--bg:#0a0c10; --surface:#12161f; --surface2:#1a2030; --border:#252d3d;
+--border-hi:#3a4560; --text:#e2eaf8; --muted:#6b7a99; --dim:#3d4a66;
+--green:#00e5a0; --green-dim:#003d2a; --red:#ff4d6d; --red-dim:#3d0012;
+--yellow:#ffb830; --yellow-dim:#3d2900; --blue:#4d9fff; --blue-dim:#001a3d;
+--accent:#7eb8ff; --gold:#ffd166; --white:#f8faff;
+}
+
+body{
+font-family:'IBM Plex Sans',sans-serif; background:var(--bg); color:var(--text);
+min-height:100vh; padding:24px 20px; line-height:1.6;
+}
+.mono{font-family:'IBM Plex Mono',monospace;}
+.wrap{max-width:1200px;margin:0 auto;}
+
+.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--border-hi); padding-bottom:18px;margin-bottom:20px;}
+.hdr-title{font-size:22px;font-weight:900;color:var(--white);display:flex;align-items:center;gap:10px;}
+.hdr-title span.v{font-size:12px;font-weight:600;background:var(--accent);color:#000;padding:2px 8px;border-radius:3px;}
+.hdr-sub{font-size:13px;color:var(--muted);margin-top:4px;}
+
+.tabs{display:flex;gap:0;margin-bottom:20px;border-bottom:2px solid var(--border); overflow-x: auto; white-space: nowrap;}
+.tab{padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer;color:var(--muted);border:none;border-bottom:3px solid transparent;background:none;transition:0.15s;}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.panel{display:none;}.panel.active{display:block;}
+
+.btn{padding:10px 24px;font-weight:700;cursor:pointer;border:2px solid;transition:0.15s;font-family:inherit; border-radius:4px;}
+.btn-primary{background:var(--green);color:#000;border-color:var(--green); width: 100%; font-size: 15px;}
+.btn-primary:hover{background:#00ffb3;}
+.btn-outline{background:transparent;color:var(--accent);border-color:var(--accent); width: 100%; font-size: 15px;}
+.btn-outline:hover{background:var(--accent);color:#000;}
+
+.db-container { display: flex; gap: 20px; flex-wrap: wrap; }
+.db-box { flex: 1; background: var(--surface); border: 1px solid var(--border); padding: 20px; min-width: 300px; border-radius:8px; }
+.db-box h3 { font-size: 14px; color: var(--accent); margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;}
+.db-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+.db-item { display: flex; flex-direction: column; gap: 4px; }
+.db-item label { font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; }
+.db-item input { background: var(--bg); border: 1px solid var(--border-hi); color: var(--white); padding: 8px; font-family: 'IBM Plex Mono'; font-size: 14px; border-radius:4px;}
+.db-item input:focus { outline: none; border-color: var(--accent); }
+
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.metric-card { background: var(--surface); border: 1px solid var(--border); padding: 16px; text-align: center; border-radius:8px;}
+.metric-card.m-a { border-top: 3px solid var(--accent); }
+.metric-card.m-bh { border-top: 3px solid var(--muted); }
+.m-title { font-size: 13px; color: var(--muted); font-weight: 700; margin-bottom: 12px; }
+.m-row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; border-bottom: 1px dashed var(--border-hi); padding-bottom: 4px; }
+.m-row:last-child { border-bottom: none; margin-bottom: 0; }
+.m-val { font-family: 'IBM Plex Mono'; font-weight: 700; }
+
+.chart-wrap{background:var(--surface);border:1px solid var(--border);padding:18px;margin-bottom:16px;border-radius:8px;}
+
+.loading-overlay{position:fixed;inset:0;background:rgba(10,12,16,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:16px;}
+.hidden{display:none;}
+.spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+.upload-box{ background:var(--surface);border:2px dashed var(--border-hi);padding:16px;text-align:center;margin-bottom:20px;transition:0.2s; border-radius:8px;}
+.upload-box:hover{border-color:var(--accent);}
+.upload-box label{cursor:pointer;color:var(--accent);font-weight:700;}
+input[type="file"]{display:none;}
+</style>
+</head>
+<body>
+
+<div class="loading-overlay hidden" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" style="font-weight:bold;">運算中... 正在極速回測</div>
+</div>
+
+<div class="wrap">
+  <div class="hdr">
+    <div class="hdr-left">
+      <div class="hdr-title">🛡️ 矛與盾 <span class="v">V9.60 網頁極速版</span></div>
+      <div class="hdr-sub">1000 萬資產動態 DCA ｜ 熔斷保護 ｜ 預備金抄底</div>
+    </div>
+    <div id="dataSourceBadge" style="font-size:12px;padding:4px 12px;border:1px solid var(--border-hi);color:var(--muted);font-family:monospace;border-radius:4px;">● 等待載入數據</div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab(event,'database')">🗄️ 資料庫更新</button>
+    <button class="tab" onclick="switchTab(event,'config')">⚙ 回測策略設定</button>
+    <button class="tab" onclick="switchTab(event,'result')">📊 總體績效與走勢</button>
+  </div>
+
+  <div class="panel active" id="panel-database">
+    <div class="upload-box">
+      <p style="margin-bottom:10px;">📤 <b>第一步：上傳現有的歷史資料庫 (CSV)</b></p>
+      <label for="csvUpload">點擊選擇檔案</label>
+      <input type="file" id="csvUpload" accept=".csv" onchange="handleFileUpload(event)">
+      <div id="fileNameDisplay" style="margin-top:10px;font-size:12px;color:var(--green);"></div>
+    </div>
+
+    <div class="db-container">
+      <div class="db-box" style="border-color:var(--blue-dim); background:rgba(0, 26, 61, 0.2);">
+        <h3>🤖 第二步：自動連線抓取 Yahoo/FRED 最新數據</h3>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">自動抓取 S&P 500 (^GSPC) 與 VIX 進行每日資料庫補齊，並消除時區與尺度落差。</p>
+        <div class="db-grid">
+          <div class="db-item" style="grid-column: span 2;"><label>專屬 Proxy URL</label><input type="text" id="apiProxy" value="https://shield-proxy.depross0205.workers.dev?url="></div>
+        </div>
+        <button class="btn btn-primary" style="background:var(--blue);border-color:var(--blue);color:#000;" onclick="fetchWebData()">🔄 自動抓取並整併</button>
+      </div>
+
+      <div class="db-box" style="display:flex; flex-direction:column;">
+        <h3>📥 第三步：資料狀態確認</h3>
+        <div style="margin-top:auto; background:var(--surface2); padding:16px; border-radius:6px; margin-bottom:16px; border:1px dashed var(--border-hi);">
+          <div style="font-size:12px;color:var(--muted);">目前記憶體資料庫筆數：</div>
+          <div id="dbCountDisplay" style="font-size:24px; font-weight:700; font-family:'IBM Plex Mono'; color:var(--text);">0 筆</div>
+          <div style="font-size:11px;color:var(--green); margin-top:4px;" id="dbLastDateDisplay">最後更新日期：無</div>
+        </div>
+        <button class="btn btn-outline" onclick="switchTab({target:document.querySelectorAll('.tab')[1]}, 'config')">前往設定策略 ➔</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-config">
+    <div style="background:var(--surface2); border:1px solid var(--border-hi); padding:20px; margin-bottom:24px; display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:20px; border-radius:8px;">
+      
+      <div style="display:flex;flex-direction:column;gap:12px;background:var(--surface);padding:16px;border:1px solid var(--border);border-radius:6px;">
+        <div style="font-size:12px;color:var(--yellow);text-transform:uppercase;font-weight:700;border-bottom:1px solid var(--border);padding-bottom:6px;">💰 1. 資產分配模型</div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;align-items:center;"><span>總資產 (萬 NTD)</span><input type="number" id="cfg_total" value="1000" style="width:80px;background:var(--bg);color:var(--white);border:1px solid var(--border-hi);text-align:right;padding:4px;"></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;align-items:center;"><span>預備金 (萬 NTD)</span><input type="number" id="cfg_reserve" value="200" style="width:80px;background:var(--bg);color:var(--white);border:1px solid var(--border-hi);text-align:right;padding:4px;"></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;align-items:center;"><span>月 DCA 基數 (萬 NTD)</span><input type="number" id="cfg_dca" value="20" style="width:80px;background:var(--bg);color:var(--white);border:1px solid var(--border-hi);text-align:right;padding:4px;"></div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px;background:var(--surface);padding:16px;border:1px solid var(--border);border-radius:6px;">
+        <div style="font-size:12px;color:var(--red);text-transform:uppercase;font-weight:700;border-bottom:1px solid var(--border);padding-bottom:6px;">🛡️ 2. 熔斷與回撤參數</div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;align-items:center;"><span>均線週期 (日) <span style="font-size:10px;color:var(--muted);">*250日≒50週</span></span><input type="number" id="cfg_sma" value="250" style="width:80px;background:var(--bg);color:var(--white);border:1px solid var(--border-hi);text-align:right;padding:4px;"></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;align-items:center;"><span>VIX 恐慌門檻</span><input type="number" id="cfg_vix" value="40" style="width:80px;background:var(--bg);color:var(--white);border:1px solid var(--border-hi);text-align:right;padding:4px;"></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;align-items:center;"><span>預備金抄底門檻 (52週 DD)</span><span style="color:var(--muted);font-size:13px;">-15% / -25% / -35%</span></div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px;background:var(--surface);padding:16px;border:1px solid var(--border);border-radius:6px;">
+        <div style="font-size:12px;color:var(--accent);text-transform:uppercase;font-weight:700;border-bottom:1px solid var(--border);padding-bottom:6px;">⚙️ 3. 訊號與執行區間</div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;align-items:center;"><span>爆買 RSI (4x 資金) <</span><input type="number" id="cfg_rsi1" value="35" style="width:80px;background:var(--bg);color:var(--white);border:1px solid var(--border-hi);text-align:right;padding:4px;"></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;align-items:center;"><span>加碼 RSI (2x 資金) <</span><input type="number" id="cfg_rsi2" value="45" style="width:80px;background:var(--bg);color:var(--white);border:1px solid var(--border-hi);text-align:right;padding:4px;"></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;align-items:center;margin-top:10px;"><span>回測開始日期</span><input type="date" id="cfg_start" value="2003-05-01" style="background:var(--bg);color:var(--white);border:1px solid var(--border-hi);padding:4px;border-radius:4px;"></div>
+      </div>
+      
+    </div>
+    <button class="btn btn-primary" style="padding:12px; font-size:16px;" onclick="runBacktest()">▶ 執行 1000 萬資產回測</button>
+  </div>
+
+  <div class="panel" id="panel-result">
+    <div class="metrics-grid" id="metricsGrid"></div>
+    <div class="chart-wrap"><canvas id="navChart" height="400"></canvas></div>
+  </div>
+
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+'use strict';
+
+let rawData = []; // {d, sp, vix}
+let DATES=[], SP=[], VIX=[];
+let navChartIns = null;
+
+// ── 輔助函數：技術指標 ──
+function calcRSI(prices, period) {
+    let rsi = new Array(prices.length).fill(50);
+    let gains = 0, losses = 0;
+    for(let i=1; i<=period && i<prices.length; i++){
+        let diff = prices[i] - prices[i-1];
+        if(diff >= 0) gains += diff; else losses -= diff;
+    }
+    let avgGain = gains / period; let avgLoss = losses / period;
+    
+    for(let i=period; i<prices.length; i++) {
+        let diff = prices[i] - prices[i-1];
+        let gain = diff >= 0 ? diff : 0;
+        let loss = diff < 0 ? -diff : 0;
+        avgGain = (avgGain * (period-1) + gain) / period;
+        avgLoss = (avgLoss * (period-1) + loss) / period;
+        let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+        rsi[i] = 100 - (100 / (1 + rs));
+    }
+    return rsi;
+}
+
+function calcSMA(prices, period) {
+    let sma = new Array(prices.length).fill(null);
+    let sum = 0;
+    for(let i=0; i<prices.length; i++) {
+        sum += prices[i];
+        if(i >= period) sum -= prices[i-period];
+        sma[i] = i >= period-1 ? sum / period : sum / (i+1); 
+    }
+    return sma;
+}
+
+function calcRollingMax(prices, period) {
+    let maxArr = new Array(prices.length).fill(null);
+    for(let i=0; i<prices.length; i++) {
+        let start = Math.max(0, i - period + 1);
+        let maxVal = prices[start];
+        for(let j=start+1; j<=i; j++) { if(prices[j] > maxVal) maxVal = prices[j]; }
+        maxArr[i] = maxVal;
+    }
+    return maxArr;
+}
+
+// ── 數據處理 ──
+function handleFileUpload(event) {
+  const file = event.target.files[0];
+  if(!file) return;
+  document.getElementById('fileNameDisplay').textContent = "正在讀取: " + file.name;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.split('\n').filter(l => l.trim().length > 0);
+    const headers = lines[0].split(',').map(h => h.trim().toUpperCase());
+    
+    const iDate = headers.findIndex(h => h.includes('DATE') || h.includes('日期') || h === 'INDEX');
+    const iSP = headers.findIndex(h => h.includes('SP500') || h.includes('VOO') || h.includes('CLOSE') || h.includes('PRICE'));
+    const iVIX = headers.findIndex(h => h.includes('VIX') || h.includes('恐慌'));
+
+    if (iDate === -1 || iSP === -1) {
+        alert("❌ CSV 必須包含 Date 與 SP500 (或 Close) 欄位！"); return;
+    }
+
+    rawData = [];
+    for(let i=1; i<lines.length; i++) {
+      const col = lines[i].split(','); 
+      if(col.length < 2) continue;
+      let dStr = col[iDate].trim();
+      if (!dStr.includes('-') && !dStr.includes('/')) continue; 
+      dStr = dStr.replace(/\//g, '-');
+      
+      rawData.push({
+        d: dStr,
+        sp: parseFloat(col[iSP]),
+        vix: iVIX > -1 ? parseFloat(col[iVIX]) : 20.0
+      });
+    }
+    
+    rawData.sort((a,b) => new Date(a.d) - new Date(b.d));
+    updateDataDisplay();
+    alert("✅ 歷史資料庫上傳成功！");
+  };
+  reader.readAsText(file);
+}
+
+async function fetchWebData() {
+  let proxy = document.getElementById('apiProxy').value.trim();
+  document.getElementById('loadingOverlay').classList.remove('hidden');
+
+  try {
+    if (proxy && !proxy.includes('url=')) proxy += '?url=';
+    const getUrl = (targetUrl) => proxy ? proxy + encodeURIComponent(targetUrl) : targetUrl;
+
+    const getYf = async (ticker) => {
+      const url = getUrl(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=5y&interval=1d`);
+      const res = await fetch(url);
+      if(!res.ok) throw new Error(`連線失敗`);
+      const json = await res.json();
+      let dict = {};
+      const chart = json.chart.result[0];
+      const times = chart.timestamp;
+      const closes = chart.indicators.quote[0].close;
+      for(let i=0; i<times.length; i++) {
+        if(closes[i] !== null) {
+          let d = new Date(times[i]*1000).toISOString().slice(0,10);
+          dict[d] = closes[i];
+        }
+      }
+      return dict;
+    };
+
+    const [spData, vixData] = await Promise.all([ getYf('^GSPC'), getYf('^VIX') ]);
+    
+    const sortedDates = Object.keys(spData).sort();
+    sortedDates.forEach(d => {
+        if (vixData[d] !== undefined) {
+            const existingIdx = rawData.findIndex(x => x.d === d);
+            const row = { d: d, sp: spData[d], vix: vixData[d] };
+            if(existingIdx > -1) rawData[existingIdx] = row;
+            else rawData.push(row);
+        }
+    });
+
+    rawData.sort((a,b) => new Date(a.d) - new Date(b.d));
+    updateDataDisplay();
+    alert(`✅ API 抓取與補齊完成！已切換至 ^GSPC 確保尺度統一。`);
+
+  } catch (error) {
+    console.error(error);
+    alert("❌ 抓取過程發生錯誤，請檢查 Proxy 或是稍後重試。");
+  } finally {
+    document.getElementById('loadingOverlay').classList.add('hidden');
+  }
+}
+
+function updateDataDisplay() {
+    DATES = rawData.map(x => x.d);
+    SP = rawData.map(x => x.sp);
+    VIX = rawData.map(x => x.vix);
+    
+    document.getElementById('dbCountDisplay').textContent = rawData.length + " 筆";
+    if(rawData.length > 0) {
+        document.getElementById('dbLastDateDisplay').textContent = "最後更新日期：" + DATES[DATES.length-1];
+        document.getElementById('dataSourceBadge').textContent = `● 系統就緒 (${rawData.length} 筆)`;
+        document.getElementById('dataSourceBadge').style.color = 'var(--green)';
+    }
+}
+// ── 核心回測引擎 (移植 V9.60 邏輯) ──
+function runBacktest() {
+  if(rawData.length === 0) { alert("無歷史資料！請先上傳 CSV 或執行 API 更新。"); return; }
+  
+  document.getElementById('loadingOverlay').classList.remove('hidden');
+
+  setTimeout(() => {
+      // 讀取參數
+      const T_CAP = parseFloat(document.getElementById('cfg_total').value) * 10000;
+      const C_RSV = parseFloat(document.getElementById('cfg_reserve').value) * 10000;
+      const B_DCA = parseFloat(document.getElementById('cfg_dca').value) * 10000;
+      let D_POOL = T_CAP - C_RSV;
+      
+      const M_SMA = parseInt(document.getElementById('cfg_sma').value);
+      const M_VIX = parseFloat(document.getElementById('cfg_vix').value);
+      const R_LV1 = parseFloat(document.getElementById('cfg_rsi1').value);
+      const R_LV2 = parseFloat(document.getElementById('cfg_rsi2').value);
+      const startDate = document.getElementById('cfg_start').value;
+
+      // 預計算技術指標 (以全域資料算，避免切斷歷史造成均線 NaN)
+      const arrRSI = calcRSI(SP, 14);
+      const arrSMA = calcSMA(SP, M_SMA);
+      const arrMax = calcRollingMax(SP, 252); 
+
+      let sh = 0.0;
+      let r_p = C_RSV;
+      let c_m = -1;
+      let flags = { r15: false, r25: false, r35: false };
+      
+      let hist = [];
+      let initialPrice = null;
+      let bh_shares = 0;
+
+      for(let i=0; i<rawData.length; i++) {
+          if (DATES[i] < startDate) continue;
+          
+          let p = SP[i];
+          let vix = VIX[i];
+          let rsi = arrRSI[i];
+          let sma = arrSMA[i];
+          let dd = (p - arrMax[i]) / arrMax[i];
+
+          // 鎖定起點價格計算 B&H
+          if (initialPrice === null) {
+              initialPrice = p;
+              bh_shares = T_CAP / initialPrice;
+          }
+
+          // 1. 預備金抄底邏輯 (-15%, -25%, -35%)
+          const thresholds = [[-0.15, 'r15'], [-0.25, 'r25'], [-0.35, 'r35']];
+          for(let t of thresholds) {
+              if (dd <= t[0] && !flags[t[1]] && r_p > 0) {
+                  let inv_amt = C_RSV * 0.3333;
+                  let actual_inv = Math.min(inv_amt, r_p);
+                  sh += actual_inv / p;
+                  r_p -= actual_inv;
+                  flags[t[1]] = true;
+              }
+          }
+          if (dd >= -0.05) { flags.r15=false; flags.r25=false; flags.r35=false; }
+
+          // 2. 月底/初 DCA 邏輯
+          let currMonth = new Date(DATES[i]).getMonth();
+          if (currMonth !== c_m) {
+              c_m = currMonth;
+              
+              let is_melted = (p < sma) || (vix > M_VIX);
+              if (!is_melted) {
+                  let amt = B_DCA;
+                  if (rsi < R_LV1) amt = B_DCA * 4;
+                  else if (rsi < R_LV2) amt = B_DCA * 2;
+
+                  let actual_dca = Math.min(amt, D_POOL);
+                  if (actual_dca > 0) {
+                      sh += actual_dca / p;
+                      D_POOL -= actual_dca;
+                  }
+              }
+          }
+
+          // 3. 紀錄淨值
+          let strategyVal = (sh * p) + D_POOL + r_p;
+          let bhVal = bh_shares * p;
+          hist.push({ d: DATES[i], strat: strategyVal, bh: bhVal });
+      }
+
+      renderResult(hist, T_CAP);
+      document.getElementById('loadingOverlay').classList.add('hidden');
+      switchTab({target:document.querySelectorAll('.tab')[2]}, 'result');
+  }, 100);
+}
+
+// ── 績效與圖表渲染 ──
+function calcPerf(hist, key, T_CAP) {
+    if(hist.length === 0) return { mdd: '0.00', cagr: '0.00', sharpe: '0.00', total: '0.0', std: '0.00' };
+    let peak = 0, mdd = 0; let rets = [];
+    for(let i=1; i<hist.length; i++){
+        let val = hist[i][key];
+        if(val > peak) peak = val;
+        let dd = (val - peak) / peak;
+        if(dd < mdd) mdd = dd;
+        rets.push((val - hist[i-1][key]) / hist[i-1][key]);
+    }
+    let years = Math.max(1.0, hist.length / 252); 
+    let totalRet = (hist[hist.length-1][key] / T_CAP) - 1;
+    let cagr = Math.pow(1 + Math.max(totalRet, -0.999), 1/years) - 1;
+    
+    let avgRet = rets.reduce((a,b)=>a+b,0) / (rets.length || 1);
+    let dailyStdDev = Math.sqrt(rets.reduce((a,b)=>a+Math.pow(b-avgRet,2),0) / (rets.length || 1));
+    let annStdDev = dailyStdDev * Math.sqrt(252);
+    let sharpe = annStdDev === 0 ? 0 : ((cagr - 0.02) / annStdDev); 
+    
+    return { 
+        mdd: (mdd*100).toFixed(2), 
+        cagr: (cagr*100).toFixed(2), 
+        sharpe: sharpe.toFixed(2), 
+        total: (totalRet*100).toFixed(1), 
+        std: (annStdDev*100).toFixed(2),
+        finalVal: (hist[hist.length-1][key]).toLocaleString('en-US', {maximumFractionDigits:0})
+    };
+}
+
+function renderResult(hist, T_CAP) {
+    const pStrat = calcPerf(hist, 'strat', T_CAP);
+    const pBH = calcPerf(hist, 'bh', T_CAP);
+
+    const getCard = (title, p, css) => `
+        <div class="metric-card ${css}">
+            <div class="m-title">${title}</div>
+            <div class="m-row"><span>期末資產</span><span class="m-val" style="color:var(--white);">$${p.finalVal}</span></div>
+            <div class="m-row"><span>總報酬</span><span class="m-val ${parseFloat(p.total)>0?'ty':''}">${parseFloat(p.total)>0?'+':''}${p.total}%</span></div>
+            <div class="m-row"><span>年化報酬</span><span class="m-val">${p.cagr}%</span></div>
+            <div class="m-row"><span>最大回撤</span><span class="m-val tr">${p.mdd}%</span></div>
+            <div class="m-row"><span>夏普值</span><span class="m-val tg">${p.sharpe}</span></div>
+        </div>`;
+
+    document.getElementById('metricsGrid').innerHTML = getCard('🛡️ 矛與盾動態策略', pStrat, 'm-a') + getCard('📈 B&H (期初單筆全壓)', pBH, 'm-bh');
+
+    const ctx = document.getElementById('navChart').getContext('2d');
+    if(navChartIns) navChartIns.destroy();
+    
+    navChartIns = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: hist.map(d => d.d),
+            datasets: [
+                { label: '🛡️ 矛與盾策略', data: hist.map(d => d.strat), borderColor: '#7eb8ff', borderWidth: 2, pointRadius: 0 },
+                { label: 'B&H 基準', data: hist.map(d => d.bh), borderColor: '#3d4a66', borderWidth: 1, pointRadius: 0 }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { intersect: false, mode: 'index' },
+            scales: { y: { type: 'logarithmic' } },
+            plugins: { tooltip: { callbacks: { label: function(c) { return c.dataset.label + ': $' + Math.round(c.raw).toLocaleString(); } } } }
+        }
+    });
+}
+
+// ── 介面控制 ──
+function switchTab(e, name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  e.target.classList.add('active');
+  document.getElementById('panel-'+name).classList.add('active');
+}
+</script>
+
+</body>
+</html>
