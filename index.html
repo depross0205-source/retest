@@ -1038,24 +1038,34 @@ async function fetchCapeMonthly(proxies){
 
 function mergeIntoDB(spD,ewPreD,ewRspD,vixD,hyD,tipD,y10D,y2D,capeByMonth,fromDate,toDate){
   var added=0,updated=0;
-  var lHY=3.5,lT=1.5,l10=4.0,l2=3.8,lCape=30;
-  if(DB.length>0){var l=DB[DB.length-1];lHY=l.hy||lHY;lT=l.tips||lT;l10=l.y10||l10;l2=l.y2||l2;lCape=l.cape||lCape;}
+  // ★ FIX: VIX 改為 forward-fill，不再用 if(!vixD[d]) return 跳過整筆
+  // 舊版 ^VIX 透過 Proxy 只回傳月底抽樣日期，導致所有非月底日期被過濾 → 輸出月頻
+  var lHY=3.5,lT=1.5,l10=4.0,l2=3.8,lCape=30,lVIX=18;
+  if(DB.length>0){
+    var l=DB[DB.length-1];
+    lHY=l.hy||lHY; lT=l.tips||lT; l10=l.y10||l10; l2=l.y2||l2;
+    lCape=l.cape||lCape; lVIX=l.vix||lVIX;
+  }
+  // 若 vixD 有資料，先掃一遍取最早有效值作為初始
+  var vixKeys=Object.keys(vixD).sort();
+  if(vixKeys.length>0) lVIX=vixD[vixKeys[0]]||lVIX;
   var allDates=new Set(Object.keys(spD));
   Array.from(allDates).sort().forEach(function(d){
     if(fromDate&&d<fromDate) return;
     if(toDate&&d>toDate) return;
     if(!spD[d]) return;
-    if(hyD[d]!==undefined)lHY=hyD[d];
-    if(tipD[d]!==undefined)lT=tipD[d];
-    if(y10D[d]!==undefined)l10=y10D[d];
-    if(y2D[d]!==undefined)l2=y2D[d];
-    if(!vixD[d]) return;
+    if(hyD[d]!==undefined) lHY=hyD[d];
+    if(tipD[d]!==undefined) lT=tipD[d];
+    if(y10D[d]!==undefined) l10=y10D[d];
+    if(y2D[d]!==undefined) l2=y2D[d];
+    // VIX: 有就更新，沒有就沿用上日（forward-fill），不再跳過整筆
+    if(vixD[d]!==undefined&&vixD[d]>0) lVIX=vixD[d];
     var m=d.slice(0,7);
     if(capeByMonth[m]) lCape=capeByMonth[m];
     var ewVal=ewRspD[d]||ewPreD[d]||spD[d];
     var ei=DB.findIndex(function(x){return x.d===d;});
     var row={d:d,sp:+spD[d].toFixed(4),ew:+ewVal.toFixed(4),
-      vix:+vixD[d].toFixed(2),hy:+lHY.toFixed(4),tips:+lT.toFixed(2),
+      vix:+lVIX.toFixed(2),hy:+lHY.toFixed(4),tips:+lT.toFixed(2),
       cape:+lCape.toFixed(2),y10:+l10.toFixed(2),y2:+l2.toFixed(2)};
     if(ei>-1){Object.assign(DB[ei],row);updated++;}
     else{DB.push(row);added++;}
