@@ -170,7 +170,7 @@ td{padding:9px;border-bottom:1px solid var(--border)}
 <div class="hdr">
   <div>
     <div class="hdr-title">🛡️ 矛與盾 × 動能策劃 <span class="v">0326</span></div>
-    <div class="hdr-sub">A/B/C/D 四軌 ｜ Regime ｜ YC ｜ V9.6 動能輪動（多週期z · TS+CS · 相關性過濾 · 分段盾牌）｜ EW斷層修復 ｜ F5校準(HY下界80→上界10) ｜ 即時信號修正 ｜ Z-Score動量懲罰 ｜ 50分中性校準 ｜ SPY下限修正 ｜ SPY下限修正 ｜ 策略顧問室</div>
+    <div class="hdr-sub">A/B/C/D 四軌 ｜ Regime ｜ YC ｜ V9.6 動能輪動（多週期z · TS+CS · 相關性過濾 · 分段盾牌）｜ EW斷層修復 ｜ F5校準(HY下界80→上界10) ｜ 即時信號修正 ｜ Z-Score動量懲罰 ｜ 50分中性校準 ｜ SPY下限修正 ｜ 策略顧問室</div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <span id="momCurrentBadge" class="hidden" style="font-size:11px;padding:3px 10px;border-radius:3px;font-family:monospace;background:var(--teal-dim);color:var(--teal);border:1px solid var(--teal)">MOM: --</span>
@@ -393,7 +393,6 @@ td{padding:9px;border-bottom:1px solid var(--border)}
   <div style="font-size:10px;color:var(--muted);line-height:1.5;background:var(--surface2);padding:4px 7px;border-radius:3px">50分=當前ERP等於5年均值<br>消除CAPE長期高估的結構偏差</div>
 </div>
 </div>
-</div>
 
 <!-- ══ 績效 ══ -->
 
@@ -594,261 +593,294 @@ td{padding:9px;border-bottom:1px solid var(--border)}
 
 <script>
 'use strict';
-window.onerror=(m,u,l)=>{ alert('⚠️ 錯誤: '+m+'\n行: '+l); return false; };
+window.onerror=function(m,u,l){ alert('\u26a0\ufe0f \u932f\u8aa4: '+m+'\n\u884c: '+l); return false; };
 
 // ════ 全域狀態 ════
-let DB=[], BT_RESULT=null, charts={}, logFilter='ALL';
-let MOM_PRICES={}, MOM_RESULT=null, MOM_CHART={};
-let AUTO_FETCHED=false;
+var DB=[], BT_RESULT=null, charts={}, logFilter='ALL';
+var MOM_PRICES={}, MOM_RESULT=null, MOM_CHART={};
+var AUTO_FETCHED=false;
 
 // ════ localStorage 快取機制 ════
-const LS_KEY_DB='shield_DB', LS_KEY_PRICES='shield_MOM_PRICES';
-const LS_KEY_UPDATED='shield_lastUpdated', LS_KEY_ASSET='shield_assetDefs';
+var LS_KEY_DB='shield_DB', LS_KEY_PRICES='shield_MOM_PRICES';
+var LS_KEY_UPDATED='shield_lastUpdated', LS_KEY_ASSET='shield_assetDefs';
 
 function saveToStorage(){
-  // ★ DB 不存 localStorage（改用 CSV 檔案管理，避免容量限制）
-  // 只存 MOM 價格快取、資產設定、上次更新時間
   try{
     localStorage.setItem(LS_KEY_PRICES,JSON.stringify(MOM_PRICES));
     localStorage.setItem(LS_KEY_UPDATED,new Date().toISOString());
-    const assetState=MOM_ASSET_DEFS.map(a=>({ticker:a.ticker,enabled:a.enabled}));
+    var assetState=MOM_ASSET_DEFS.map(function(a){return{ticker:a.ticker,enabled:a.enabled};});
     localStorage.setItem(LS_KEY_ASSET,JSON.stringify(assetState));
     updateStorageBadge();
   }catch(e){
-    console.warn('localStorage 儲存失敗：',e.message);
-    $('storageBadge').textContent='💾 儲存失敗（容量不足）';
-    $('storageBadge').style.color='var(--red)';
+    console.warn('localStorage\u5132\u5b58\u5931\u6557\uff1a',e.message);
   }
 }
 
 function loadFromStorage(){
-  // ★ DB 不從 localStorage 讀取（從 CSV 上傳）
-  // 只讀 MOM 價格快取和資產設定
   try{
-    const rawPrices=localStorage.getItem(LS_KEY_PRICES);
-    const rawAsset=localStorage.getItem(LS_KEY_ASSET);
-    const updated=localStorage.getItem(LS_KEY_UPDATED);
+    var rawPrices=localStorage.getItem(LS_KEY_PRICES);
+    var rawAsset=localStorage.getItem(LS_KEY_ASSET);
+    var updated=localStorage.getItem(LS_KEY_UPDATED);
     if(rawPrices) MOM_PRICES=JSON.parse(rawPrices);
     if(rawAsset){
-      const states=JSON.parse(rawAsset);
-      states.forEach(s=>{
-        const def=MOM_ASSET_DEFS.find(a=>a.ticker===s.ticker);
+      var states=JSON.parse(rawAsset);
+      states.forEach(function(s){
+        var def=MOM_ASSET_DEFS.find(function(a){return a.ticker===s.ticker;});
         if(def) def.enabled=s.enabled;
       });
     }
     updateMomStatusBar();
     if(updated){ updateStorageBadge(new Date(updated)); }
     return !!(rawPrices||rawAsset);
-  }catch(e){ console.warn('localStorage 載入失敗：',e.message); return false; }
+  }catch(e){ console.warn('localStorage\u8f09\u5165\u5931\u6557\uff1a',e.message); return false; }
 }
 
 function updateStorageBadge(dt){
-  const badge=$('storageBadge'); if(!badge) return;
-  const d=dt||new Date(localStorage.getItem(LS_KEY_UPDATED)||Date.now());
-  const dateStr=d.toLocaleDateString('zh-TW',{month:'2-digit',day:'2-digit'});
-  const timeStr=d.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
-  badge.textContent=`💾 ${dateStr} ${timeStr}（${DB.length}筆）`;
+  var badge=document.getElementById('storageBadge'); if(!badge) return;
+  var d=dt||new Date(localStorage.getItem(LS_KEY_UPDATED)||Date.now());
+  var dateStr=d.toLocaleDateString('zh-TW',{month:'2-digit',day:'2-digit'});
+  var timeStr=d.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+  badge.textContent='\ud83d\udcbe '+dateStr+' '+timeStr+'\uff08'+DB.length+'\u7b46\uff09';
   badge.style.color='var(--green)';
 }
 
 function clearStorage(){
-  if(!confirm('清除 MOM 快取和資產設定？（DB 資料不受影響）')) return;
-  [LS_KEY_PRICES,LS_KEY_UPDATED,LS_KEY_ASSET].forEach(k=>localStorage.removeItem(k));
+  if(!confirm('\u6e05\u9664 MOM \u5feb\u53d6\u548c\u8cc7\u7522\u8a2d\u5b9a\uff1f\uff08DB \u8cc7\u6599\u4e0d\u53d7\u5f71\u97ff\uff09')) return;
+  [LS_KEY_PRICES,LS_KEY_UPDATED,LS_KEY_ASSET].forEach(function(k){localStorage.removeItem(k);});
   MOM_PRICES={}; updateMomStatusBar(); initAssetChips();
-  $('storageBadge').textContent='💾 MOM快取已清除'; $('storageBadge').style.color='var(--muted)';
+  document.getElementById('storageBadge').textContent='\ud83d\udcbe MOM\u5feb\u53d6\u5df2\u6e05\u9664';
+  document.getElementById('storageBadge').style.color='var(--muted)';
 }
 
 // ════ 動能資產池 ════
-const MOM_ASSET_DEFS=[
-  {ticker:'SPY',name:'美國大型股',enabled:true,group:'股票'},
-  {ticker:'QQQ',name:'科技成長',enabled:true,group:'股票'},
-  {ticker:'IWM',name:'美國小型股',enabled:false,group:'股票'},
-  {ticker:'VEU',name:'全球ex-US',enabled:true,group:'國際'},
-  {ticker:'EFA',name:'已開發國際',enabled:true,group:'國際'},
-  {ticker:'EEM',name:'新興市場',enabled:true,group:'國際'},
-  {ticker:'TLT',name:'長債20Y',enabled:true,group:'債券'},
-  {ticker:'IEF',name:'中債7Y',enabled:true,group:'債券'},
-  {ticker:'GLD',name:'黃金',enabled:true,group:'實物'},
-  {ticker:'VNQ',name:'REIT',enabled:true,group:'實物'},
-  {ticker:'GSG',name:'商品指數',enabled:false,group:'實物'},
+var MOM_ASSET_DEFS=[
+  {ticker:'SPY',name:'\u7f8e\u570b\u5927\u578b\u80a1',enabled:true,group:'\u80a1\u7968'},
+  {ticker:'QQQ',name:'\u79d1\u6280\u6210\u9577',enabled:true,group:'\u80a1\u7968'},
+  {ticker:'IWM',name:'\u7f8e\u570b\u5c0f\u578b\u80a1',enabled:false,group:'\u80a1\u7968'},
+  {ticker:'VEU',name:'\u5168\u7403ex-US',enabled:true,group:'\u570b\u969b'},
+  {ticker:'EFA',name:'\u5df2\u958b\u767c\u570b\u969b',enabled:true,group:'\u570b\u969b'},
+  {ticker:'EEM',name:'\u65b0\u8208\u5e02\u5834',enabled:true,group:'\u570b\u969b'},
+  {ticker:'TLT',name:'\u9577\u50b320Y',enabled:true,group:'\u50b5\u5238'},
+  {ticker:'IEF',name:'\u4e2d\u50b57Y',enabled:true,group:'\u50b5\u5238'},
+  {ticker:'GLD',name:'\u9ec3\u91d1',enabled:true,group:'\u5be6\u7269'},
+  {ticker:'VNQ',name:'REIT',enabled:true,group:'\u5be6\u7269'},
+  {ticker:'GSG',name:'\u5546\u54c1\u6307\u6578',enabled:false,group:'\u5be6\u7269'},
 ];
-const MOM_CASH_TICKER='BIL';
+var MOM_CASH_TICKER='BIL';
 
-const lerp=(x,x0,x1,y0,y1)=>y0+(y1-y0)*Math.max(0,Math.min(1,(x-x0)/(x1-x0)));
-const $=id=>document.getElementById(id);
-const gv=id=>parseFloat($(id).value)||0;
-const gc=id=>$(id).checked;
-const setLog=(msg,ok)=>{ const e=$('fetchLog'); if(!e) return; e.textContent=msg; e.style.color=ok===true?'#00e5a0':ok===false?'#ff4d6d':'#6b7a99'; };
-
-// ════ 初始化 ════
-function lockCsvUpload(){
-  AUTO_FETCHED=true;
-  const area=$('csvUploadArea'), lock=$('csvLockMsg');
-  if(area) area.classList.add('hidden'); if(lock) lock.classList.remove('hidden');
+function lerp(x,x0,x1,y0,y1){return y0+(y1-y0)*Math.max(0,Math.min(1,(x-x0)/(x1-x0)));}
+function $(id){return document.getElementById(id);}
+function gv(id){return parseFloat($(id).value)||0;}
+function gc(id){return $(id).checked;}
+function setLog(msg,ok){
+  var e=$('fetchLog'); if(!e) return;
+  e.textContent=msg;
+  e.style.color=ok===true?'#00e5a0':ok===false?'#ff4d6d':'#6b7a99';
 }
 
-window.addEventListener('DOMContentLoaded',()=>{
+// ════ 初始化 ════
+window.addEventListener('DOMContentLoaded',function(){
   $('dbDate').value=new Date().toISOString().slice(0,10);
   checkWeekend(); updateStrkInfo(); initAssetChips();
-  loadFromStorage(); // 只載入 MOM 快取和資產設定
-  $('storageBadge').textContent='💾 DB=CSV';
+  loadFromStorage();
+  $('storageBadge').textContent='\ud83d\udcbe DB=CSV';
   $('storageBadge').style.color='var(--muted)';
-  setLog('📂 請上傳歷史 CSV，或點「🌐 完整日頻下載」取得首次資料。',null);
+  setLog('\ud83d\udcc2 \u8acb\u4e0a\u50b3\u6b77\u53f2 CSV\uff0c\u6216\u9ede\u300c\ud83c\udf10 \u5b8c\u6574\u65e5\u983b\u4e0b\u8f09\u300d\u53d6\u5f97\u9996\u6b21\u8cc7\u6599\u3002',null);
 });
 
 function initAssetChips(){
-  const wrap=$('assetChips');
-  const groups={};
-  MOM_ASSET_DEFS.forEach(a=>{ if(!groups[a.group]) groups[a.group]=[]; groups[a.group].push(a); });
-  wrap.innerHTML=Object.entries(groups).map(([g,assets])=>
-    `<div style="font-size:9px;color:var(--dim);text-transform:uppercase;grid-column:1/-1;margin-top:4px;margin-bottom:1px">${g}</div>`+
-    assets.map(a=>`<div class="asset-chip ${a.enabled?'enabled':''}" id="chip_${a.ticker}" onclick="toggleAsset('${a.ticker}')"><span>${a.ticker}</span><span style="font-size:9px;color:var(--muted)">${a.name.slice(0,5)}</span></div>`).join('')
-  ).join('')+
-  `<div style="font-size:9px;color:var(--dim);text-transform:uppercase;grid-column:1/-1;margin-top:4px;margin-bottom:1px">現金</div>
-   <div class="asset-chip cash">BIL <span style="font-size:9px">停泊</span></div>`;
+  var wrap=$('assetChips');
+  var groups={};
+  MOM_ASSET_DEFS.forEach(function(a){ if(!groups[a.group]) groups[a.group]=[]; groups[a.group].push(a); });
+  wrap.innerHTML=Object.entries(groups).map(function(entry){
+    var g=entry[0], assets=entry[1];
+    return '<div style="font-size:9px;color:var(--dim);text-transform:uppercase;grid-column:1/-1;margin-top:4px;margin-bottom:1px">'+g+'</div>'+
+      assets.map(function(a){return '<div class="asset-chip '+(a.enabled?'enabled':'')+'" id="chip_'+a.ticker+'" onclick="toggleAsset(\''+a.ticker+'\')"><span>'+a.ticker+'</span><span style="font-size:9px;color:var(--muted)">'+a.name.slice(0,5)+'</span></div>';}).join('');
+  }).join('')+
+  '<div style="font-size:9px;color:var(--dim);text-transform:uppercase;grid-column:1/-1;margin-top:4px;margin-bottom:1px">\u73fe\u91d1</div>'+
+  '<div class="asset-chip cash">BIL <span style="font-size:9px">\u505c\u6cca</span></div>';
   updateMomStatusBar();
 }
 
 function toggleAsset(ticker){
-  const idx=MOM_ASSET_DEFS.findIndex(a=>a.ticker===ticker); if(idx<0) return;
+  var idx=MOM_ASSET_DEFS.findIndex(function(a){return a.ticker===ticker;}); if(idx<0) return;
   MOM_ASSET_DEFS[idx].enabled=!MOM_ASSET_DEFS[idx].enabled;
   $('chip_'+ticker).classList.toggle('enabled',MOM_ASSET_DEFS[idx].enabled);
   updateMomStatusBar();
 }
 
 function updateMomStatusBar(){
-  const wrap=$('momAssetStatus');
-  const allTickers=[...MOM_ASSET_DEFS.map(a=>a.ticker),MOM_CASH_TICKER];
-  wrap.innerHTML=allTickers.map(t=>{
-    const prices=MOM_PRICES[t], hasData=prices&&prices.length>0;
-    const enabled=t===MOM_CASH_TICKER||MOM_ASSET_DEFS.find(a=>a.ticker===t)?.enabled;
+  var wrap=$('momAssetStatus');
+  var allTickers=MOM_ASSET_DEFS.map(function(a){return a.ticker;}).concat([MOM_CASH_TICKER]);
+  wrap.innerHTML=allTickers.map(function(t){
+    var prices=MOM_PRICES[t], hasData=prices&&prices.length>0;
+    var def=MOM_ASSET_DEFS.find(function(a){return a.ticker===t;});
+    var enabled=t===MOM_CASH_TICKER||(def&&def.enabled);
     if(!enabled) return '';
-    const cls=!prices?'mas-pending':hasData?'mas-ok':'mas-fail';
-    return `<span class="mom-asset-status ${cls}">${t} ${hasData?prices.length+'m':'--'}</span>`;
+    var cls=!prices?'mas-pending':hasData?'mas-ok':'mas-fail';
+    return '<span class="mom-asset-status '+cls+'">'+t+' '+(hasData?prices.length+'m':'--')+'</span>';
   }).join('');
 }
 
 // ════ DB 工具 ════
 function sortAndFill(){
-  DB.sort((a,b)=>a.d.localeCompare(b.d));
-  let last={sp:5000,ew:5000,vix:18,hy:3.5,tips:1.5,cape:30,y10:4.0,y2:3.8};
-  DB.forEach(r=>{ ['sp','ew','vix','hy','tips','cape','y10','y2'].forEach(k=>{
-    if(r[k]==null||isNaN(r[k])) r[k]=last[k]; else last[k]=r[k];
-  });});
-  fixEWDiscontinuity(); // ← EW 斷層修復
+  DB.sort(function(a,b){return a.d.localeCompare(b.d);});
+  var last={sp:5000,ew:5000,vix:18,hy:3.5,tips:1.5,cape:30,y10:4.0,y2:3.8};
+  DB.forEach(function(r){
+    ['sp','ew','vix','hy','tips','cape','y10','y2'].forEach(function(k){
+      if(r[k]==null||isNaN(r[k])) r[k]=last[k]; else last[k]=r[k];
+    });
+  });
+  fixEWDiscontinuity();
   updateStatus();
 }
 
-// ── EW/SP 比率系列斷層自動修復 ──
-// EW 僅用於計算 EW/SP 比率（zb、spewRelPerf），
-// 因此只要比率在斷層處連續，絕對數值不影響策略邏輯。
-// 典型案例：2003-04（EW=SP）→ 2003-05（EW=RSP ETF），ratio 從 1.000 驟降至 0.311
 function fixEWDiscontinuity(){
   if(DB.length<2) return;
-  for(let i=1;i<DB.length;i++){
-    const sp_p=DB[i-1].sp, ew_p=DB[i-1].ew;
-    const sp_c=DB[i].sp,   ew_c=DB[i].ew;
+  for(var i=1;i<DB.length;i++){
+    var sp_p=DB[i-1].sp, ew_p=DB[i-1].ew;
+    var sp_c=DB[i].sp,   ew_c=DB[i].ew;
     if(!sp_p||!sp_c||!ew_p||!ew_c) continue;
-    const r_p=ew_p/sp_p, r_c=ew_c/sp_c;
+    var r_p=ew_p/sp_p, r_c=ew_c/sp_c;
     if(r_p<=0) continue;
-    const jump=r_c/r_p;
-    // 比率跳躍超過 2 倍或低於 0.5 倍 → 判定為系列斷層
+    var jump=r_c/r_p;
     if(jump>2.0||jump<0.5){
-      const scale=jump;
-      for(let j=0;j<i;j++){
-        DB[j].ew=+(DB[j].ew*scale).toFixed(6);
-      }
-      console.log(`[EW修復] ${DB[i-1].d}→${DB[i].d}: ratio ${r_p.toFixed(4)}→${r_c.toFixed(4)}, 前${i}筆 ×${scale.toFixed(4)}`);
+      var scale=jump;
+      for(var j=0;j<i;j++) DB[j].ew=+(DB[j].ew*scale).toFixed(6);
     }
   }
 }
 
 function updateStatus(){
-  $('dbCount').textContent=DB.length+' 筆';
-  $('dbRange').textContent=DB.length>0?DB[0].d+' → '+DB[DB.length-1].d:'--';
+  $('dbCount').textContent=DB.length+' \u7b46';
+  $('dbRange').textContent=DB.length>0?DB[0].d+' \u2192 '+DB[DB.length-1].d:'--';
   if(DB.length>0){
-    const l=DB[DB.length-1];
+    var l=DB[DB.length-1];
     $('dbDate').value=new Date().toISOString().slice(0,10);
     $('dbSP').value=l.sp.toFixed(2); $('dbEW').value=l.ew.toFixed(2);
     $('dbVIX').value=l.vix.toFixed(2); $('dbHY').value=l.hy.toFixed(4);
     $('dbTIPS').value=l.tips.toFixed(2); $('dbY10').value=l.y10.toFixed(2); $('dbY2').value=l.y2.toFixed(2);
     $('dbCAPE').value='';
-    // ★ 只有當 cpStart 比 DB 最早日還晚、或 cpEnd 比 DB 最新日還早時才自動修正
-    // 避免「DB 有 23 年資料但 cpStart 被覆寫成近 1 年」造成 CAGR 爆炸
-    const curStart=$('cpStart').value, curEnd=$('cpEnd').value;
+    var curStart=$('cpStart').value, curEnd=$('cpEnd').value;
     if(!curStart||curStart<DB[0].d) $('cpStart').value=DB[0].d;
     if(!curEnd||curEnd>l.d) $('cpEnd').value=l.d;
   }
 }
 
 function checkWeekend(){
-  const d=$('dbDate').value; if(!d){ $('weekendWarn').style.display='none'; return; }
-  const day=new Date(d+'T12:00:00').getDay();
-  const w=$('weekendWarn');
-  if(day===0||day===6){ w.textContent=`⚠ ${d} 是週${day===6?'六':'日'}（非交易日）`; w.style.display='block'; }
+  var d=$('dbDate').value; if(!d){ $('weekendWarn').style.display='none'; return; }
+  var day=new Date(d+'T12:00:00').getDay();
+  var w=$('weekendWarn');
+  if(day===0||day===6){ w.textContent='\u26a0 '+d+' \u662f\u9031'+(day===6?'\u516d':'\u65e5')+'\uff08\u975e\u4ea4\u6613\u65e5\uff09'; w.style.display='block'; }
   else w.style.display='none';
 }
 
-function toggleVixPB(){ const pb=gc('vixPullback'); $('cpVixPB').disabled=!pb; $('cpVixPB').style.opacity=pb?'1':'0.4'; }
+function toggleVixPB(){ var pb=gc('vixPullback'); $('cpVixPB').disabled=!pb; $('cpVixPB').style.opacity=pb?'1':'0.4'; }
 function toggleSpyFloor(){
-  const on=gc('momSpyFloor');
-  const row=$('spyFloorRow'); if(!row) return;
+  var on=gc('momSpyFloor');
+  var row=$('spyFloorRow'); if(!row) return;
   row.style.opacity=on?'1':'0.4'; row.style.pointerEvents=on?'auto':'none';
 }
 function toggleDefenseMode(){
-  const on=gc('momDefenseMode');
-  const rows=$('defenseModeRows'); if(!rows) return;
+  var on=gc('momDefenseMode');
+  var rows=$('defenseModeRows'); if(!rows) return;
   rows.style.opacity=on?'1':'0.4'; rows.style.pointerEvents=on?'auto':'none';
 }
 
 function updateStrkInfo(){
-  const active=[];
-  if(gc('useStrkRsi')) active.push('①'); if(gc('useStrkVix')) active.push('②');
-  if(gc('useStrkBias')) active.push('③'); if(gc('useStrkEWR')) active.push('④');
-  const cnt=active.length||1; $('strkEnabledCount').textContent=cnt;
-  const n=Math.min(Math.max(1,parseInt($('cpStrkN').value)||2),cnt);
-  $('strkInfo').textContent=`已啟用: ${active.join('')||'無'} | 需達 ${n} / ${cnt} 條件觸發短打`;
+  var active=[];
+  if(gc('useStrkRsi')) active.push('\u2460'); if(gc('useStrkVix')) active.push('\u2461');
+  if(gc('useStrkBias')) active.push('\u2462'); if(gc('useStrkEWR')) active.push('\u2463');
+  var cnt=active.length||1; $('strkEnabledCount').textContent=cnt;
+  var n=Math.min(Math.max(1,parseInt($('cpStrkN').value)||2),cnt);
+  $('strkInfo').textContent='\u5df2\u555f\u7528: '+(active.join('')||'\u7121')+' | \u9700\u9054 '+n+' / '+cnt+' \u689d\u4ef6\u89f8\u767c\u77ed\u6253';
+}
+
+// ════ BUG FIX #5: exportCSV 函式（原版遺漏）════
+function exportCSV(){
+  if(DB.length===0){alert('\u8cc7\u6599\u5eab\u662f\u7a7a\u7684\uff0c\u7121\u6cd5\u532f\u51fa\u3002');return;}
+  var headers=['DATE','SP500','SP500EW','VIX','HY_SPREAD','TIPS_10Y','DGS10','DGS2','CAPE'];
+  var rows=DB.map(function(r){
+    return [r.d,
+      r.sp!=null?r.sp:'',r.ew!=null?r.ew:'',r.vix!=null?r.vix:'',
+      r.hy!=null?r.hy:'',r.tips!=null?r.tips:'',r.y10!=null?r.y10:'',
+      r.y2!=null?r.y2:'',r.cape!=null?r.cape:''
+    ].join(',');
+  });
+  var csv=[headers.join(',')].concat(rows).join('\n');
+  var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='Shield_Database.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// ════ BUG FIX #6: manualAdd 函式（原版遺漏）════
+function manualAdd(){
+  var d=$('dbDate').value;
+  if(!d){alert('\u8acb\u8f38\u5165\u65e5\u671f');return;}
+  var sp=parseFloat($('dbSP').value);
+  var ewRaw=parseFloat($('dbEW').value);
+  var ew=isNaN(ewRaw)?sp:ewRaw;
+  var vix=parseFloat($('dbVIX').value);
+  var hy=parseFloat($('dbHY').value);
+  var tips=parseFloat($('dbTIPS').value);
+  var y10=parseFloat($('dbY10').value);
+  var y2=parseFloat($('dbY2').value);
+  var capeRaw=$('dbCAPE').value;
+  if(isNaN(sp)||sp<=0){alert('\u8acb\u586b\u5beb\u6709\u6548\u7684 S&P 500 \u9ede\u4f4d');return;}
+  if(isNaN(vix)||vix<=0){alert('\u8acb\u586b\u5beb\u6709\u6548\u7684 VIX');return;}
+  var lastCape=DB.length>0?DB[DB.length-1].cape:30;
+  var cape=(capeRaw&&!isNaN(parseFloat(capeRaw)))?parseFloat(capeRaw):lastCape;
+  var row={d:d,sp:sp,ew:ew,vix:vix,
+    hy:isNaN(hy)?3.5:hy,tips:isNaN(tips)?1.5:tips,
+    y10:isNaN(y10)?4.0:y10,y2:isNaN(y2)?3.8:y2,cape:cape};
+  var ei=DB.findIndex(function(x){return x.d===d;});
+  if(ei>-1){Object.assign(DB[ei],row);alert('\u2705 \u5df2\u66f4\u65b0 '+d);}
+  else{DB.push(row);alert('\u2705 \u5df2\u65b0\u589e '+d);}
+  sortAndFill();
+  saveToStorage();
 }
 
 function loadCSV(event){
-  if(AUTO_FETCHED){ alert('⚠ 已使用自動抓取，CSV 上傳已停用。'); event.target.value=''; return; }
-  const file=event.target.files[0]; if(!file) return;
-  const reader=new FileReader();
-  reader.onload=e=>{
+  if(AUTO_FETCHED){ alert('\u26a0 \u5df2\u4f7f\u7528\u81ea\u52d5\u6293\u53d6\uff0cCSV \u4e0a\u50b3\u5df2\u505c\u7528\u3002'); event.target.value=''; return; }
+  var file=event.target.files[0]; if(!file) return;
+  var reader=new FileReader();
+  reader.onload=function(e){
     try{
-      const lines=e.target.result.split('\n').filter(l=>l.trim());
-      const headers=lines[0].split(',').map(h=>h.trim().toUpperCase());
-      const gi=n=>headers.indexOf(n);
-      const idx={d:gi('DATE'),sp:gi('SP500'),ew:gi('SP500EW')>-1?gi('SP500EW'):gi('EW'),
+      var lines=e.target.result.split('\n').filter(function(l){return l.trim();});
+      var headers=lines[0].split(',').map(function(h){return h.trim().toUpperCase();});
+      function gi(n){return headers.indexOf(n);}
+      var idx={d:gi('DATE'),sp:gi('SP500'),ew:gi('SP500EW')>-1?gi('SP500EW'):gi('EW'),
         hy:gi('HY_SPREAD'),tips:gi('TIPS_10Y'),vix:gi('VIX'),cape:gi('CAPE'),y10:gi('DGS10'),y2:gi('DGS2')};
-      if(idx.d<0||idx.sp<0){alert('找不到 DATE 或 SP500 欄位！');return;}
-      const rows=[];
-      for(let i=1;i<lines.length;i++){
-        const c=lines[i].split(','); if(c.length<4) continue;
-        const pf=k=>idx[k]>-1?parseFloat(c[idx[k]]):NaN;
+      if(idx.d<0||idx.sp<0){alert('\u627e\u4e0d\u5230 DATE \u6216 SP500 \u6b04\u4f4d\uff01');return;}
+      var rows=[];
+      for(var i=1;i<lines.length;i++){
+        var c=lines[i].split(','); if(c.length<4) continue;
+        function pf(k){return idx[k]>-1?parseFloat(c[idx[k]]):NaN;}
         rows.push({d:c[idx.d].trim(),sp:pf('sp'),ew:idx.ew>-1?pf('ew'):pf('sp'),
           hy:pf('hy'),tips:pf('tips'),vix:pf('vix'),cape:pf('cape'),y10:pf('y10'),y2:pf('y2')});
       }
-      rows.forEach(r=>{
-        const ei=DB.findIndex(x=>x.d===r.d);
-        if(ei>-1){Object.entries(r).forEach(([k,v])=>{if(k!=='d'&&!isNaN(v))DB[ei][k]=v;});}
+      rows.forEach(function(r){
+        var ei=DB.findIndex(function(x){return x.d===r.d;});
+        if(ei>-1){Object.entries(r).forEach(function(kv){if(kv[0]!=='d'&&!isNaN(kv[1]))DB[ei][kv[0]]=kv[1];});}
         else DB.push(r);
       });
       sortAndFill();
-      $('csvStatus').textContent='✅ 載入 '+rows.length+' 筆，共 '+DB.length+' 筆';
-      const b=$('dataSourceBadge'); b.textContent='● CSV ('+DB.length+' 筆)'; b.style.color='var(--green)';
+      $('csvStatus').textContent='\u2705 \u8f09\u5165 '+rows.length+' \u7b46\uff0c\u5171 '+DB.length+' \u7b46';
+      var b=$('dataSourceBadge'); b.textContent='\u25cf CSV ('+DB.length+'\u7b46)'; b.style.color='var(--green)';
       saveToStorage();
-    }catch(err){alert('CSV 解析錯誤：'+err.message);}
+    }catch(err){alert('CSV \u89e3\u6790\u932f\u8aa4\uff1a'+err.message);}
   };
   reader.readAsText(file);
 }
 
 function applyCapeMonthly(capeByMonth){
-  let changed=0;
-  DB.forEach(r=>{
-    const m=r.d.slice(0,7);
+  var changed=0;
+  DB.forEach(function(r){
+    var m=r.d.slice(0,7);
     if(capeByMonth[m]!==undefined){
-      const newCape=+capeByMonth[m].toFixed(2);
+      var newCape=+capeByMonth[m].toFixed(2);
       if(Math.abs((r.cape||0)-newCape)>0.01){ r.cape=newCape; changed++; }
     }
   });
@@ -856,129 +888,126 @@ function applyCapeMonthly(capeByMonth){
 }
 
 function applyManualCape(){
-  const val=parseFloat($('apiCape').value);
-  if(isNaN(val)||val<=0){alert('請輸入有效的 CAPE 值（例如 36.5）');return;}
-  const curMonth=new Date().toISOString().slice(0,7);
-  const changed=applyCapeMonthly({[curMonth]:val});
-  if(changed>0){ sortAndFill(); saveToStorage(); alert(`✅ 已將 ${curMonth} 的 ${changed} 筆資料更新為 CAPE=${val}`); }
-  else alert(`目前資料庫中無 ${curMonth} 的資料，或 CAPE 值已是 ${val}。`);
+  var val=parseFloat($('apiCape').value);
+  if(isNaN(val)||val<=0){alert('\u8acb\u8f38\u5165\u6709\u6548\u7684 CAPE \u5024\uff08\u4f8b\u5982 36.5\uff09');return;}
+  var curMonth=new Date().toISOString().slice(0,7);
+  var changed=applyCapeMonthly({[curMonth]:val});
+  if(changed>0){ sortAndFill(); saveToStorage(); alert('\u2705 \u5df2\u5c07 '+curMonth+' \u7684 '+changed+' \u7b46\u8cc7\u6599\u66f4\u65b0\u70ba CAPE='+val); }
+  else alert('\u76ee\u524d\u8cc7\u6599\u5eab\u4e2d\u7121 '+curMonth+' \u7684\u8cc7\u6599\uff0c\u6216 CAPE \u5024\u5df2\u662f '+val+'\u3002');
 }
 
 function loadCapeCSV(event){
-  const file=event.target.files[0]; if(!file) return;
-  const st=$('capeUploadStatus');
-  st.textContent='📂 讀取 '+file.name+'...'; st.style.color='var(--muted)';
-  const reader=new FileReader();
-  reader.onload=e=>{
+  var file=event.target.files[0]; if(!file) return;
+  var st=$('capeUploadStatus');
+  st.textContent='\ud83d\udcc2 \u8b80\u53d6 '+file.name+'...'; st.style.color='var(--muted)';
+  var reader=new FileReader();
+  reader.onload=function(e){
     try{
-      const text=e.target.result.trim();
-      if(!text){st.textContent='❌ 檔案是空的';st.style.color='var(--red)';return;}
-      const lines=text.split(/\r?\n/).filter(l=>l.trim());
-      const startIdx=/^\d/.test(lines[0].split(/[,\t]/)[0].trim())?0:1;
-      const capeByDay={}, capeByMonth={};
-      let parsed=0, skipped=0;
-      for(let i=startIdx;i<lines.length;i++){
-        const cols=lines[i].split(/[,\t]/).map(c=>c.trim().replace(/"/g,''));
+      var text=e.target.result.trim();
+      if(!text){st.textContent='\u274c \u6a94\u6848\u662f\u7a7a\u7684';st.style.color='var(--red)';return;}
+      var lines=text.split(/\r?\n/).filter(function(l){return l.trim();});
+      var startIdx=/^\d/.test(lines[0].split(/[,\t]/)[0].trim())?0:1;
+      var capeByDay={}, capeByMonth={};
+      var parsed=0, skipped=0;
+      for(var i=startIdx;i<lines.length;i++){
+        var cols=lines[i].split(/[,\t]/).map(function(c){return c.trim().replace(/"/g,'');});
         if(cols.length<2) continue;
-        const rawDate=cols[0];
-        let val=NaN;
-        for(let j=1;j<cols.length;j++){const v=parseFloat(cols[j]);if(!isNaN(v)&&v>0){val=v;break;}}
+        var rawDate=cols[0];
+        var val=NaN;
+        for(var j=1;j<cols.length;j++){var v=parseFloat(cols[j]);if(!isNaN(v)&&v>0){val=v;break;}}
         if(isNaN(val)||val<=0){skipped++;continue;}
-        if(/^\d{4}-\d{2}-\d{2}$/.test(rawDate)){
-          capeByDay[rawDate]=val; capeByMonth[rawDate.slice(0,7)]=val; parsed++;
-        }else if(/^\d{4}-\d{2}$/.test(rawDate)){
-          capeByMonth[rawDate]=val; parsed++;
-        }else skipped++;
+        if(/^\d{4}-\d{2}-\d{2}$/.test(rawDate)){capeByDay[rawDate]=val; capeByMonth[rawDate.slice(0,7)]=val; parsed++;}
+        else if(/^\d{4}-\d{2}$/.test(rawDate)){capeByMonth[rawDate]=val; parsed++;}
+        else skipped++;
       }
-      if(parsed===0){st.textContent='❌ 無法解析任何資料';st.style.color='var(--red)';return;}
+      if(parsed===0){st.textContent='\u274c \u7121\u6cd5\u89e3\u6790\u4efb\u4f55\u8cc7\u6599';st.style.color='var(--red)';return;}
       if(DB.length===0){
         localStorage.setItem('shield_pendingCape',JSON.stringify(capeByMonth));
-        st.textContent=`⚠ DB 尚無資料，已暫存 ${parsed} 筆 CAPE。執行完整抓取後會自動套用。`;
+        st.textContent='\u26a0 DB \u5c1a\u7121\u8cc7\u6599\uff0c\u5df2\u66ab\u5b58 '+parsed+' \u7b46 CAPE\u3002';
         st.style.color='var(--yellow)'; return;
       }
-      let changed=0;
-      DB.forEach(r=>{
-        let newCape=capeByDay[r.d]??capeByMonth[r.d.slice(0,7)]??null;
-        if(newCape!==null){const rounded=+newCape.toFixed(2);if(Math.abs((r.cape||0)-rounded)>0.01){r.cape=rounded;changed++;}}
+      var changed=0;
+      DB.forEach(function(r){
+        var newCape=capeByDay[r.d]!==undefined?capeByDay[r.d]:(capeByMonth[r.d.slice(0,7)]!==undefined?capeByMonth[r.d.slice(0,7)]:null);
+        if(newCape!==null){var rounded=+newCape.toFixed(2);if(Math.abs((r.cape||0)-rounded)>0.01){r.cape=rounded;changed++;}}
       });
       sortAndFill(); saveToStorage(); event.target.value='';
-      st.textContent=`✅ 解析 ${parsed} 筆，更新 DB ${changed} 筆`+(skipped>0?`，跳過 ${skipped} 筆`:'');
+      st.textContent='\u2705 \u89e3\u6790 '+parsed+' \u7b46\uff0c\u66f4\u65b0 DB '+changed+' \u7b46'+(skipped>0?'\uff0c\u8df3\u904e '+skipped+' \u7b46':'');
       st.style.color='var(--green)';
-    }catch(err){st.textContent='❌ 解析錯誤：'+err.message;st.style.color='var(--red)';}
+    }catch(err){st.textContent='\u274c \u89e3\u6790\u932f\u8aa4\uff1a'+err.message;st.style.color='var(--red)';}
   };
-  reader.onerror=()=>{st.textContent='❌ 讀取檔案失敗';st.style.color='var(--red)';};
+  reader.onerror=function(){st.textContent='\u274c \u8b80\u53d6\u6a94\u6848\u5931\u6557';st.style.color='var(--red)';};
   reader.readAsText(file,'UTF-8');
 }
 
-// ════════════════════════════════════════
-// 資料抓取：共用工具
-// ════════════════════════════════════════
+// ════ 資料抓取：共用工具 ════
 function buildProxies(){
-  let proxy=$('apiProxy').value.trim();
+  var proxy=$('apiProxy').value.trim();
   if(proxy&&!proxy.includes('url=')) proxy=proxy.endsWith('/')?proxy+'?url=':proxy+'/?url=';
   return [proxy,'https://api.allorigins.win/raw?url=','https://api.codetabs.com/v1/proxy?quest='].filter(Boolean);
 }
 
 async function fetchFB(url,proxies){
-  let lastErr;
-  for(const p of proxies){
+  var lastErr;
+  for(var i=0;i<proxies.length;i++){
+    var p=proxies[i];
     try{
-      const res=await fetch(p+encodeURIComponent(url));
+      var res=await fetch(p+encodeURIComponent(url));
       if(!res.ok) throw new Error('HTTP '+res.status);
-      if((res.headers.get('content-type')||'').includes('text/html')&&!url.includes('multpl')) throw new Error('Proxy 回傳 HTML');
+      if((res.headers.get('content-type')||'').includes('text/html')&&!url.includes('multpl')) throw new Error('Proxy HTML');
       return res;
     }catch(e){lastErr=e;}
   }
-  throw lastErr||new Error('所有 Proxy 失敗');
+  throw lastErr||new Error('\u6240\u6709 Proxy \u5931\u6557');
 }
 
 async function fetchYfDaily(ticker,proxies,fromDate){
-  setLog('🔄 Yahoo: '+ticker+'...');
-  $('loadingText').textContent='抓取 '+ticker;
-  let url='https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?range=max&interval=1d';
+  setLog('\ud83d\udd04 Yahoo: '+ticker+'...');
+  $('loadingText').textContent='\u6293\u53d6 '+ticker;
+  var url='https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?range=max&interval=1d';
   if(fromDate){
-    const t=Math.floor(new Date(fromDate).getTime()/1000);
+    var t=Math.floor(new Date(fromDate).getTime()/1000);
     url='https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?period1='+t+'&period2=9999999999&interval=1d';
   }
-  const res=await fetchFB(url,proxies);
-  const j=await res.json();
-  const d={},chart=j?.chart?.result?.[0];
+  var res=await fetchFB(url,proxies);
+  var j=await res.json();
+  var d={},chart=j&&j.chart&&j.chart.result&&j.chart.result[0];
   if(!chart) return d;
-  chart.timestamp.forEach((t,i)=>{
-    const adj=chart.indicators?.adjclose?.[0]?.adjclose?.[i];
-    const cl=chart.indicators?.quote?.[0]?.close?.[i];
-    const val=adj??cl;
-    if(val&&val>0) d[new Date(t*1000).toISOString().slice(0,10)]=val;
+  chart.timestamp.forEach(function(ts,i){
+    var adj=chart.indicators&&chart.indicators.adjclose&&chart.indicators.adjclose[0]&&chart.indicators.adjclose[0].adjclose?chart.indicators.adjclose[0].adjclose[i]:null;
+    var cl=chart.indicators&&chart.indicators.quote&&chart.indicators.quote[0]?chart.indicators.quote[0].close[i]:null;
+    var val=adj!==null?adj:cl;
+    if(val&&val>0) d[new Date(ts*1000).toISOString().slice(0,10)]=val;
   });
   return d;
 }
 
 async function fetchFredSeries(id,key,proxies,fromDate){
-  setLog('🔄 FRED: '+id+'...');
+  setLog('\ud83d\udd04 FRED: '+id+'...');
   $('loadingText').textContent='FRED: '+id;
-  let url='https://api.stlouisfed.org/fred/series/observations?series_id='+id+'&api_key='+key+'&file_type=json';
+  var url='https://api.stlouisfed.org/fred/series/observations?series_id='+id+'&api_key='+key+'&file_type=json';
   if(fromDate) url+='&observation_start='+fromDate;
-  const res=await fetchFB(url,proxies);
-  const j=await res.json();
+  var res=await fetchFB(url,proxies);
+  var j=await res.json();
   if(j.error_message) throw new Error('FRED '+id+': '+j.error_message);
-  const d={};
-  j.observations.forEach(o=>{if(o.value!=='.') d[o.date]=parseFloat(o.value);});
+  var d={};
+  j.observations.forEach(function(o){if(o.value!=='.') d[o.date]=parseFloat(o.value);});
   return d;
 }
 
 async function fetchCapeMonthly(proxies){
-  setLog('🔄 CAPE（multpl.com）...');
-  $('loadingText').textContent='CAPE 歷史';
-  const capeByMonth={};
+  setLog('\ud83d\udd04 CAPE\uff08multpl.com\uff09...');
+  $('loadingText').textContent='CAPE \u6b77\u53f2';
+  var capeByMonth={};
   try{
-    const res=await fetchFB('https://www.multpl.com/shiller-pe/table/by-month.json',proxies);
-    const text=await res.text();
-    let parsed; try{parsed=JSON.parse(text);}catch(e){parsed=null;}
+    var res=await fetchFB('https://www.multpl.com/shiller-pe/table/by-month.json',proxies);
+    var text=await res.text();
+    var parsed; try{parsed=JSON.parse(text);}catch(e){parsed=null;}
     if(parsed){
-      const rows=parsed.data||parsed.rows||parsed;
+      var rows=parsed.data||parsed.rows||parsed;
       if(Array.isArray(rows)){
-        rows.forEach(row=>{
-          let dateVal,numVal;
+        rows.forEach(function(row){
+          var dateVal,numVal;
           if(Array.isArray(row)){dateVal=new Date(row[0]);numVal=parseFloat(row[1]);}
           else if(row.date&&row.value!==undefined){dateVal=new Date(row.date);numVal=parseFloat(row.value);}
           if(dateVal&&!isNaN(dateVal.getTime())&&!isNaN(numVal)&&numVal>0)
@@ -988,36 +1017,31 @@ async function fetchCapeMonthly(proxies){
     }
     if(Object.keys(capeByMonth).length>10) return capeByMonth;
   }catch(e){}
-  // HTML fallback
   try{
-    const res=await fetchFB('https://www.multpl.com/shiller-pe/table/by-month',proxies);
-    const html=await res.text();
-    const trPattern=/<tr[^>]*>([\s\S]*?)<\/tr>/gi; let trMatch;
+    var res2=await fetchFB('https://www.multpl.com/shiller-pe/table/by-month',proxies);
+    var html=await res2.text();
+    var trPattern=/<tr[^>]*>([\s\S]*?)<\/tr>/gi; var trMatch;
     while((trMatch=trPattern.exec(html))!==null){
-      const inner=trMatch[1];
-      const tds=(inner.match(/<td[^>]*>([\s\S]*?)<\/td>/gi)||[]).map(td=>td.replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim());
+      var inner=trMatch[1];
+      var tds=(inner.match(/<td[^>]*>([\s\S]*?)<\/td>/gi)||[]).map(function(td){return td.replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim();});
       if(tds.length>=2){
-        const numVal=parseFloat(tds[1].replace(/,/g,''));
-        if(isNaN(numVal)||numVal<=0) continue;
-        const d=new Date(tds[0].replace(/\s+/g,' ').trim());
-        if(!isNaN(d.getTime())) capeByMonth[d.toISOString().slice(0,7)]=numVal;
+        var numVal2=parseFloat(tds[1].replace(/,/g,''));
+        if(isNaN(numVal2)||numVal2<=0) continue;
+        var dd=new Date(tds[0].replace(/\s+/g,' ').trim());
+        if(!isNaN(dd.getTime())) capeByMonth[dd.toISOString().slice(0,7)]=numVal2;
       }
     }
   }catch(e){}
-  if(!Object.keys(capeByMonth).length) setLog('⚠ CAPE 自動抓取失敗，請手動上傳 CAPE CSV。');
+  if(!Object.keys(capeByMonth).length) setLog('\u26a0 CAPE \u81ea\u52d5\u6293\u53d6\u5931\u6557\uff0c\u8acb\u624b\u52d5\u4e0a\u50b3 CAPE CSV\u3002');
   return capeByMonth;
 }
 
-// 合併所有 series 到 DB（覆蓋指定日期範圍）
 function mergeIntoDB(spD,ewPreD,ewRspD,vixD,hyD,tipD,y10D,y2D,capeByMonth,fromDate,toDate){
-  let added=0,updated=0;
-  let lHY=3.5,lT=1.5,l10=4.0,l2=3.8,lCape=30;
-  // 用 DB 最近一筆初始化前向填充值
-  if(DB.length>0){const l=DB[DB.length-1];lHY=l.hy||lHY;lT=l.tips||lT;l10=l.y10||l10;l2=l.y2||l2;lCape=l.cape||lCape;}
-
-  // 合併所有有 SPY 的日期
-  const allDates=new Set([...Object.keys(spD)]);
-  [...allDates].sort().forEach(d=>{
+  var added=0,updated=0;
+  var lHY=3.5,lT=1.5,l10=4.0,l2=3.8,lCape=30;
+  if(DB.length>0){var l=DB[DB.length-1];lHY=l.hy||lHY;lT=l.tips||lT;l10=l.y10||l10;l2=l.y2||l2;lCape=l.cape||lCape;}
+  var allDates=new Set(Object.keys(spD));
+  Array.from(allDates).sort().forEach(function(d){
     if(fromDate&&d<fromDate) return;
     if(toDate&&d>toDate) return;
     if(!spD[d]) return;
@@ -1025,273 +1049,241 @@ function mergeIntoDB(spD,ewPreD,ewRspD,vixD,hyD,tipD,y10D,y2D,capeByMonth,fromDa
     if(tipD[d]!==undefined)lT=tipD[d];
     if(y10D[d]!==undefined)l10=y10D[d];
     if(y2D[d]!==undefined)l2=y2D[d];
-    if(!vixD[d]) return; // VIX 是必填，沒有則跳過
-    const m=d.slice(0,7);
+    if(!vixD[d]) return;
+    var m=d.slice(0,7);
     if(capeByMonth[m]) lCape=capeByMonth[m];
-    // EW：RSP優先，其次 SP500EWI，最後用 SPY（比率=1）
-    const ewVal=ewRspD[d]||ewPreD[d]||spD[d];
-    const ei=DB.findIndex(x=>x.d===d);
-    const row={d,sp:+spD[d].toFixed(4),ew:+ewVal.toFixed(4),
+    var ewVal=ewRspD[d]||ewPreD[d]||spD[d];
+    var ei=DB.findIndex(function(x){return x.d===d;});
+    var row={d:d,sp:+spD[d].toFixed(4),ew:+ewVal.toFixed(4),
       vix:+vixD[d].toFixed(2),hy:+lHY.toFixed(4),tips:+lT.toFixed(2),
       cape:+lCape.toFixed(2),y10:+l10.toFixed(2),y2:+l2.toFixed(2)};
     if(ei>-1){Object.assign(DB[ei],row);updated++;}
     else{DB.push(row);added++;}
   });
-  return {added,updated};
+  return {added:added,updated:updated};
 }
 
-// ════════════════════════════════════════
-// 完整日頻首次下載（2003-04 至今）
-// ════════════════════════════════════════
+// ════ BUG FIX #1 & #2: alert 字串改用 \n 而非裸換行（原版導致整個 JS SyntaxError）════
 async function fetchFullHistory(){
-  const key=$('apiFredKey').value.trim();
-  if(!key){alert('請填寫 FRED API Key');return;}
-  const proxies=buildProxies();
+  var key=$('apiFredKey').value.trim();
+  if(!key){alert('\u8acb\u586b\u5beb FRED API Key');return;}
+  var proxies=buildProxies();
   $('loadingOverlay').classList.remove('hidden');
-  setLog('🌐 完整日頻下載中...（約需30秒）');
+  setLog('\ud83c\udf10 \u5b8c\u6574\u65e5\u983b\u4e0b\u8f09\u4e2d...\uff08\u7d04\u963030\u79d2\uff09');
   try{
-    // 抓取所有 series
-    const spD  = await fetchYfDaily('SPY',proxies);
-    const ewRspD = await fetchYfDaily('RSP',proxies);         // RSP ETF 2003-04-24起
-    // ^SP500EWI：RSP 上市前的 EW 代理（失敗不中斷）
-    let ewPreD={};
+    var spD  = await fetchYfDaily('SPY',proxies);
+    var ewRspD = await fetchYfDaily('RSP',proxies);
+    var ewPreD={};
     try{
-      setLog('🔄 Yahoo: ^SP500EWI（RSP前EW代理）...');
-      $('loadingText').textContent='抓取 ^SP500EWI';
+      setLog('\ud83d\udd04 Yahoo: ^SP500EWI...');
+      $('loadingText').textContent='\u6293\u53d6 ^SP500EWI';
       ewPreD=await fetchYfDaily('^SP500EWI',proxies);
-      setLog(`✅ SP500EWI 取得 ${Object.keys(ewPreD).length} 筆`);
-    }catch(e){ setLog('⚠ ^SP500EWI 抓取失敗，2003年前 EW 將用 SPY 代替'); }
-    const vixD = await fetchYfDaily('^VIX',proxies);
-    const hyD  = await fetchFredSeries('BAMLH0A0HYM2',key,proxies);
-    const tipD = await fetchFredSeries('DFII10',key,proxies);
-    const y10D = await fetchFredSeries('DGS10',key,proxies);
-    const y2D  = await fetchFredSeries('DGS2',key,proxies);
-    const capeByMonth = await fetchCapeMonthly(proxies);
-    setLog('整併資料中...');
+    }catch(e){ setLog('\u26a0 ^SP500EWI \u6293\u53d6\u5931\u6557'); }
+    var vixD = await fetchYfDaily('^VIX',proxies);
+    var hyD  = await fetchFredSeries('BAMLH0A0HYM2',key,proxies);
+    var tipD = await fetchFredSeries('DFII10',key,proxies);
+    var y10D = await fetchFredSeries('DGS10',key,proxies);
+    var y2D  = await fetchFredSeries('DGS2',key,proxies);
+    var capeByMonth = await fetchCapeMonthly(proxies);
+    setLog('\u6574\u4f75\u8cc7\u6599\u4e2d...');
     DB=[];
-    const {added}=mergeIntoDB(spD,ewPreD,ewRspD,vixD,hyD,tipD,y10D,y2D,capeByMonth);
-    // CAPE 月頻填充
+    var result=mergeIntoDB(spD,ewPreD,ewRspD,vixD,hyD,tipD,y10D,y2D,capeByMonth);
     applyCapeMonthly(capeByMonth);
     sortAndFill();
-    const msg=`✅ 完整下載完成：${added} 筆日頻資料（${DB[0]?.d||''}～${DB[DB.length-1]?.d||''}）`;
+    var msg='\u2705 \u5b8c\u6574\u4e0b\u8f09\u5b8c\u6210\uff1a'+result.added+' \u7b46\u65e5\u983b\u8cc7\u6599\uff08'+(DB[0]&&DB[0].d||'')+'\uff5e'+(DB[DB.length-1]&&DB[DB.length-1].d||'')+'\uff09';
     setLog(msg,true);
-    const b=$('dataSourceBadge');b.textContent=`● 日頻 (${DB.length}筆)`;b.style.color='var(--teal)';
+    var b=$('dataSourceBadge');b.textContent='\u25cf \u65e5\u983b ('+DB.length+'\u7b46)';b.style.color='var(--teal)';
     saveToStorage();
-    // 自動下載 CSV
-    await new Promise(r=>setTimeout(r,300));
+    await new Promise(function(r){setTimeout(r,300);});
     exportCSV();
-    alert(msg+'
-
-已自動下載 CSV，請存到手機/電腦備用。
-每日操作：上傳此 CSV → 點「每日更新」→ 再下載覆蓋儲存。');
-  }catch(err){setLog('❌ '+err.message,false);console.error(err);alert('❌ 下載失敗：'+err.message);}
+    // ★ FIX #1: 改用 \n 避免裸換行導致 SyntaxError
+    alert(msg+'\n\n\u5df2\u81ea\u52d5\u4e0b\u8f09 CSV\uff0c\u8acb\u5b58\u5230\u624b\u6a5f/\u96fb\u8166\u5099\u7528\u3002\n\u6bcf\u65e5\u64cd\u4f5c\uff1a\u4e0a\u50b3\u6b64 CSV \u2192 \u9ede\u300c\u6bcf\u65e5\u66f4\u65b0\u300d\u2192 \u518d\u4e0b\u8f09\u8986\u84cb\u5132\u5b58\u3002');
+  }catch(err){setLog('\u274c '+err.message,false);console.error(err);alert('\u274c \u4e0b\u8f09\u5931\u6557\uff1a'+err.message);}
   finally{$('loadingOverlay').classList.add('hidden');}
 }
 
-// ════════════════════════════════════════
-// 每日更新（自動偵測缺口，覆蓋近30天+缺口）
-// ════════════════════════════════════════
 async function fetchDailyUpdate(){
-  if(DB.length===0){alert('請先上傳歷史 CSV，再執行每日更新。');return;}
-  const key=$('apiFredKey').value.trim();
-  if(!key){alert('請填寫 FRED API Key');return;}
-  const proxies=buildProxies();
+  if(DB.length===0){alert('\u8acb\u5148\u4e0a\u50b3\u6b77\u53f2 CSV\uff0c\u518d\u57f7\u884c\u6bcf\u65e5\u66f4\u65b0\u3002');return;}
+  var key=$('apiFredKey').value.trim();
+  if(!key){alert('\u8acb\u586b\u5beb FRED API Key');return;}
+  var proxies=buildProxies();
   $('loadingOverlay').classList.remove('hidden');
-  // 計算缺口：DB最後日期 到 今天
-  const lastDate=DB[DB.length-1].d;
-  const today=new Date().toISOString().slice(0,10);
-  const gapDays=Math.max(0,Math.round((new Date(today)-new Date(lastDate))/86400000));
-  // 覆蓋範圍：最少30天，有缺口則到缺口+5天緩衝
-  const coverDays=Math.max(30,gapDays+5);
-  const fromDate=new Date(Date.now()-coverDays*86400000).toISOString().slice(0,10);
-  setLog(`⚡ 每日更新中（覆蓋 ${fromDate} 起，補缺口 ${gapDays} 天）...`);
+  var lastDate=DB[DB.length-1].d;
+  var today=new Date().toISOString().slice(0,10);
+  var gapDays=Math.max(0,Math.round((new Date(today)-new Date(lastDate))/86400000));
+  var coverDays=Math.max(30,gapDays+5);
+  var fromDate=new Date(Date.now()-coverDays*86400000).toISOString().slice(0,10);
+  setLog('\u26a1 \u6bcf\u65e5\u66f4\u65b0\u4e2d\uff08\u8986\u84cb '+fromDate+' \u8d77\uff0c\u88dc\u7f3a\u53e3 '+gapDays+' \u5929\uff09...');
   try{
-    const spD  = await fetchYfDaily('SPY',proxies,fromDate);
-    const ewRspD = await fetchYfDaily('RSP',proxies,fromDate);
-    const vixD = await fetchYfDaily('^VIX',proxies,fromDate);
-    const hyD  = await fetchFredSeries('BAMLH0A0HYM2',key,proxies,fromDate);
-    const tipD = await fetchFredSeries('DFII10',key,proxies,fromDate);
-    const y10D = await fetchFredSeries('DGS10',key,proxies,fromDate);
-    const y2D  = await fetchFredSeries('DGS2',key,proxies,fromDate);
-    const capeByMonth = await fetchCapeMonthly(proxies);
-    setLog('整併資料中...');
-    const {added,updated}=mergeIntoDB(spD,{},ewRspD,vixD,hyD,tipD,y10D,y2D,capeByMonth,fromDate);
+    var spD  = await fetchYfDaily('SPY',proxies,fromDate);
+    var ewRspD = await fetchYfDaily('RSP',proxies,fromDate);
+    var vixD = await fetchYfDaily('^VIX',proxies,fromDate);
+    var hyD  = await fetchFredSeries('BAMLH0A0HYM2',key,proxies,fromDate);
+    var tipD = await fetchFredSeries('DFII10',key,proxies,fromDate);
+    var y10D = await fetchFredSeries('DGS10',key,proxies,fromDate);
+    var y2D  = await fetchFredSeries('DGS2',key,proxies,fromDate);
+    var capeByMonth = await fetchCapeMonthly(proxies);
+    setLog('\u6574\u4f75\u8cc7\u6599\u4e2d...');
+    var result=mergeIntoDB(spD,{},ewRspD,vixD,hyD,tipD,y10D,y2D,capeByMonth,fromDate);
     applyCapeMonthly(capeByMonth);
     sortAndFill();
-    const msg=`✅ 更新完成：新增 ${added}，覆蓋更新 ${updated}。共 ${DB.length} 筆`;
+    var msg='\u2705 \u66f4\u65b0\u5b8c\u6210\uff1a\u65b0\u589e '+result.added+'\uff0c\u8986\u84cb\u66f4\u65b0 '+result.updated+'\u3002\u5171 '+DB.length+' \u7b46';
     setLog(msg,true);
-    const b=$('dataSourceBadge');b.textContent=`● 日頻更新 (${DB.length}筆)`;b.style.color='var(--accent)';
+    var b=$('dataSourceBadge');b.textContent='\u25cf \u65e5\u983b\u66f4\u65b0 ('+DB.length+'\u7b46)';b.style.color='var(--accent)';
     saveToStorage();
-    // 自動下載更新後的 CSV
-    await new Promise(r=>setTimeout(r,300));
+    await new Promise(function(r){setTimeout(r,300);});
     exportCSV();
-    alert(msg+'
-
-已自動下載最新 CSV，請覆蓋存檔備用。');
-  }catch(err){setLog('❌ '+err.message,false);console.error(err);alert('❌ 更新失敗：'+err.message);}
+    // ★ FIX #2: 改用 \n 避免裸換行導致 SyntaxError
+    alert(msg+'\n\n\u5df2\u81ea\u52d5\u4e0b\u8f09\u6700\u65b0 CSV\uff0c\u8acb\u8986\u84cb\u5b58\u6a94\u5099\u7528\u3002');
+  }catch(err){setLog('\u274c '+err.message,false);console.error(err);alert('\u274c \u66f4\u65b0\u5931\u6557\uff1a'+err.message);}
   finally{$('loadingOverlay').classList.add('hidden');}
 }
-
 
 async function fetchYfMonthly(ticker,proxies){
-  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=max&interval=1mo`;
-  let lastErr;
-  for(const p of proxies){
+  var url='https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?range=max&interval=1mo';
+  var lastErr;
+  for(var i=0;i<proxies.length;i++){
+    var p=proxies[i];
     try{
-      const res=await fetch(p+encodeURIComponent(url)); if(!res.ok) throw new Error('HTTP '+res.status);
-      const j=await res.json(); const chart=j?.chart?.result?.[0]; if(!chart) throw new Error('無資料');
-      const prices=[]; chart.timestamp.forEach((t,i)=>{
-        const close=chart.indicators?.adjclose?.[0]?.adjclose?.[i]??chart.indicators?.quote?.[0]?.close?.[i];
-        if(close&&close>0) prices.push({date:new Date(t*1000).toISOString().slice(0,7),close:+close.toFixed(4)});
+      var res=await fetch(p+encodeURIComponent(url)); if(!res.ok) throw new Error('HTTP '+res.status);
+      var j=await res.json(); var chart=j&&j.chart&&j.chart.result&&j.chart.result[0]; if(!chart) throw new Error('\u7121\u8cc7\u6599');
+      var prices=[]; chart.timestamp.forEach(function(ts,idx){
+        var adj=chart.indicators&&chart.indicators.adjclose&&chart.indicators.adjclose[0]?chart.indicators.adjclose[0].adjclose[idx]:null;
+        var cl=chart.indicators&&chart.indicators.quote&&chart.indicators.quote[0]?chart.indicators.quote[0].close[idx]:null;
+        var close=adj!==null?adj:cl;
+        if(close&&close>0) prices.push({date:new Date(ts*1000).toISOString().slice(0,7),close:+close.toFixed(4)});
       });
-      const seen={};prices.forEach(p=>{seen[p.date]=p;});
-      return Object.values(seen).sort((a,b)=>a.date.localeCompare(b.date));
+      var seen={};prices.forEach(function(pp){seen[pp.date]=pp;});
+      return Object.values(seen).sort(function(a,b){return a.date.localeCompare(b.date);});
     }catch(e){lastErr=e;}
   }
-  throw lastErr||new Error('抓取失敗');
+  throw lastErr||new Error('\u6293\u53d6\u5931\u6557');
 }
 
+// ════ BUG FIX #3: getProxies() → buildProxies()（原版函式名錯誤）════
 async function fetchMomData(){
-  const proxies=getProxies();
-  const enabledTickers=[...MOM_ASSET_DEFS.filter(a=>a.enabled).map(a=>a.ticker),MOM_CASH_TICKER];
+  var proxies=buildProxies(); // ★ FIX #3
+  var enabledTickers=MOM_ASSET_DEFS.filter(function(a){return a.enabled;}).map(function(a){return a.ticker;}).concat([MOM_CASH_TICKER]);
   $('loadingOverlay').classList.remove('hidden'); $('momFetchProgress').classList.remove('hidden');
-  $('momFetchLog').textContent='開始抓取...';
-  let done=0; const results={}, failed=[];
-  for(const ticker of enabledTickers){
-    $('loadingText').textContent=`抓取 ${ticker} 月頻資料...`;
-    $('momProgressText').textContent=`${ticker} (${done+1}/${enabledTickers.length})`;
-    $('momProgressFill').style.width=`${(done/enabledTickers.length)*100}%`;
+  $('momFetchLog').textContent='\u958b\u59cb\u6293\u53d6...';
+  var done=0; var results={}, failed=[];
+  for(var i=0;i<enabledTickers.length;i++){
+    var ticker=enabledTickers[i];
+    $('loadingText').textContent='\u6293\u53d6 '+ticker+' \u6708\u983b\u8cc7\u6599...';
+    $('momProgressText').textContent=ticker+' ('+(done+1)+'/'+enabledTickers.length+')';
+    $('momProgressFill').style.width=((done/enabledTickers.length)*100)+'%';
     try{ results[ticker]=await fetchYfMonthly(ticker,proxies); }
     catch(e){ failed.push(ticker); results[ticker]=[]; }
     done++;
   }
   $('momProgressFill').style.width='100%';
   Object.assign(MOM_PRICES,results); updateMomStatusBar();
-  const okCount=enabledTickers.filter(t=>results[t]?.length>0).length;
-  const msg=`✅ 完成 ${okCount}/${enabledTickers.length}${failed.length?'，失敗：'+failed.join(','):''}`;
+  var okCount=enabledTickers.filter(function(t){return results[t]&&results[t].length>0;}).length;
+  var msg='\u2705 \u5b8c\u6210 '+okCount+'/'+enabledTickers.length+(failed.length?'\uff0c\u5931\u6557\uff1a'+failed.join(','):'');
   $('momFetchLog').textContent=msg; $('momFetchLog').style.color=failed.length?'var(--yellow)':'var(--green)';
   $('loadingOverlay').classList.add('hidden'); $('momFetchProgress').classList.add('hidden');
   calcMomCurrentSignal(); saveToStorage();
 }
 
-// ════ Z-Score 動態懲罰輔助函式 ════
-// 以滾動歷史分布（最多252筆）為基準，只有統計上顯著的異常（>zThresh σ）才扣分
-// direction=1：懲罰偏高值（HY動量↑）；direction=-1：懲罰偏低值（寬度動量↓）
-// zThresh→0分，3.0σ→maxPenalty，線性插值
+// ════ Z-Score 動態懲罰 ════
 function zScorePenalty(series,current,direction,zThresh,maxPenalty,wMax,wMin){
-  const n=Math.min(series.length,wMax||252); if(n<(wMin||20)) return 0;
-  const vals=series.slice(-n);
-  const mean=vals.reduce((a,b)=>a+b,0)/n;
-  const std=Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/n)||0.0001;
-  const z=(current-mean)/std*direction;
+  var n=Math.min(series.length,wMax||252); if(n<(wMin||20)) return 0;
+  var vals=series.slice(-n);
+  var mean=vals.reduce(function(a,b){return a+b;},0)/n;
+  var std=Math.sqrt(vals.reduce(function(a,b){return a+(b-mean)*(b-mean);},0)/n)||0.0001;
+  var z=(current-mean)/std*direction;
   if(z<=zThresh) return 0;
   return Math.min(maxPenalty,maxPenalty*(z-zThresh)/(3.0-zThresh));
 }
 
-// ★★★ 0325 50分中性校準 + Z-Score 動量懲罰 ★★★
-// 設計原則：正常市場=50分，清場門檻40/45才有明確統計意義
-//   F1=50 @ ERP=2.0%（CAPE≈28.6, TIPS=1.5%，後危機長期均值）
-//     lerp(ERP, 0, 4, 10, 90)：midpoint ERP=2% → F1=50
-//   F5=50 @ HY=350bp（2010年後正常信用環境均值）
-//     lerp(HY, 250, 600, 66, 10)：(350-250)/(600-250)=2/7 → 66-56*2/7=50
-//   Z-Score懲罰：>1.5σ才開始扣分，3σ=上限（15/10分）
-//     正常波動完全不扣；2020 COVID暴升≈5σ→扣滿；2008緩升≈2σ→扣~5分
 function getShieldScore(dateStr){
   if(!DB.length) return 50;
-  let bestIdx=DB.length-1;
-  for(let i=0;i<DB.length;i++){if(DB[i].d>dateStr){bestIdx=Math.max(0,i-1);break;}}
-  const best=DB[bestIdx];
-
-  // ── 基礎盾分（50分中性校準）──
-  const erp=(100/(best.cape||30))-(best.tips||1.5);
-  const f1=lerp(erp,0,4,10,90);                           // 50 @ ERP=2.0%
-  const f5=lerp((best.hy||3.5)*100,250,600,66,10);        // 50 @ HY=350bp
-  const base=f1*0.5+f5*0.5;
-
-  // ── 建立滾動動量序列（近350筆≈1.5年）──
-  const startIdx=Math.max(0,bestIdx-350);
-  const hyMomSeries=[],breadthMomSeries=[];
-  for(let i=startIdx+60;i<=bestIdx;i++){
-    const i60=Math.max(startIdx,i-60);
-    hyMomSeries.push((DB[i].hy||3.5)*100-(DB[i60].hy||3.5)*100);
-    const r=DB[i],r0=DB[i60];
-    const ew=r.ew||r.sp||1,sp=r.sp||1,ew0=r0.ew||r0.sp||1,sp0=r0.sp||1;
+  var bestIdx=DB.length-1;
+  for(var i=0;i<DB.length;i++){if(DB[i].d>dateStr){bestIdx=Math.max(0,i-1);break;}}
+  var best=DB[bestIdx];
+  var erp=(100/(best.cape||30))-(best.tips||1.5);
+  var f1=lerp(erp,0,4,10,90);
+  var f5=lerp((best.hy||3.5)*100,250,600,66,10);
+  var base=f1*0.5+f5*0.5;
+  var startIdx=Math.max(0,bestIdx-350);
+  var hyMomSeries=[],breadthMomSeries=[];
+  for(var i2=startIdx+60;i2<=bestIdx;i2++){
+    var i60=Math.max(startIdx,i2-60);
+    hyMomSeries.push((DB[i2].hy||3.5)*100-(DB[i60].hy||3.5)*100);
+    var r=DB[i2],r0=DB[i60];
+    var ew=r.ew||r.sp||1,sp=r.sp||1,ew0=r0.ew||r0.sp||1,sp0=r0.sp||1;
     breadthMomSeries.push(sp0>0&&ew0>0?(ew/sp)/(ew0/sp0)-1:0);
   }
-  // 當前值
-  const ci60=Math.max(0,bestIdx-60);
-  const curHyMom=(best.hy||3.5)*100-(DB[ci60].hy||3.5)*100;
-  const r0=DB[ci60];
-  const ew=best.ew||best.sp||1,sp=best.sp||1,ew0=r0.ew||r0.sp||1,sp0=r0.sp||1;
-  const curBrdMom=sp0>0&&ew0>0?(ew/sp)/(ew0/sp0)-1:0;
-
-  // ── Z-Score 動量懲罰（統計異常才扣分）──
-  // 即時盾分：根據DB資料自動判斷頻率
-  const dbDiff=DB.length>5?Math.round(
-    (new Date(DB[DB.length-1].d)-new Date(DB[DB.length-6].d))/(5*86400000)):1;
-  const dbMonthly=dbDiff>=15;
-  const hyPenalty=zScorePenalty(hyMomSeries,curHyMom,1,1.5,15,dbMonthly?12:252,dbMonthly?3:20);
-  const brdPenalty=zScorePenalty(breadthMomSeries,curBrdMom,-1,1.5,10,dbMonthly?12:252,dbMonthly?3:20);
-
+  var ci60=Math.max(0,bestIdx-60);
+  var curHyMom=(best.hy||3.5)*100-(DB[ci60].hy||3.5)*100;
+  var r0b=DB[ci60];
+  var ew2=best.ew||best.sp||1,sp2=best.sp||1,ew02=r0b.ew||r0b.sp||1,sp02=r0b.sp||1;
+  var curBrdMom=sp02>0&&ew02>0?(ew2/sp2)/(ew02/sp02)-1:0;
+  var dbDiff=DB.length>5?Math.round((new Date(DB[DB.length-1].d)-new Date(DB[DB.length-6].d))/(5*86400000)):1;
+  var dbMonthly=dbDiff>=15;
+  var hyPenalty=zScorePenalty(hyMomSeries,curHyMom,1,1.5,15,dbMonthly?12:252,dbMonthly?3:20);
+  var brdPenalty=zScorePenalty(breadthMomSeries,curBrdMom,-1,1.5,10,dbMonthly?12:252,dbMonthly?3:20);
   return Math.max(0,Math.min(100,base-hyPenalty-brdPenalty));
 }
 
 function getCashRate(yyyymm){
   if(!DB.length) return 0.04;
-  const target=yyyymm+'-15'; let best=DB[DB.length-1];
-  for(const r of DB){if(r.d<=target) best=r; else break;}
+  var target=yyyymm+'-15'; var best=DB[DB.length-1];
+  for(var i=0;i<DB.length;i++){if(DB[i].d<=target) best=DB[i]; else break;}
   return (best.y2||4.0)/100;
 }
 
 function getMomPrice(ticker,yyyymm){
-  const prices=MOM_PRICES[ticker]; if(!prices||!prices.length) return null;
-  const exact=prices.find(p=>p.date===yyyymm); if(exact) return exact.close;
-  let best=null;
-  for(const p of prices){if(p.date<=yyyymm) best=p; else break;}
-  return best?.close||null;
+  var prices=MOM_PRICES[ticker]; if(!prices||!prices.length) return null;
+  var exact=prices.find(function(p){return p.date===yyyymm;}); if(exact) return exact.close;
+  var best=null;
+  for(var i=0;i<prices.length;i++){if(prices[i].date<=yyyymm) best=prices[i]; else break;}
+  return best?best.close:null;
 }
 
-function momCalcVol(ticker,months,idx,n=12){
+function momCalcVol(ticker,months,idx,n){
+  n=n||12;
   if(idx<n+1) return null;
-  const rets=[];
-  for(let i=idx-n;i<idx;i++){
-    const p0=getMomPrice(ticker,months[i-1]);const p1=getMomPrice(ticker,months[i]);
+  var rets=[];
+  for(var i=idx-n;i<idx;i++){
+    var p0=getMomPrice(ticker,months[i-1]);var p1=getMomPrice(ticker,months[i]);
     if(p0&&p1&&p0>0) rets.push(p1/p0-1);
   }
-  const minRequired=Math.max(2,Math.floor(n/2));
+  var minRequired=Math.max(2,Math.floor(n/2));
   if(rets.length<minRequired) return null;
-  const avg=rets.reduce((a,b)=>a+b,0)/rets.length;
-  return Math.sqrt(rets.reduce((a,b)=>a+(b-avg)**2,0)/rets.length)*Math.sqrt(12);
+  var avg=rets.reduce(function(a,b){return a+b;},0)/rets.length;
+  return Math.sqrt(rets.reduce(function(a,b){return a+(b-avg)*(b-avg);},0)/rets.length)*Math.sqrt(12);
 }
 
 function momCalcZ(ticker,months,idx,nPeriod){
   if(idx<nPeriod) return null;
-  const p1=getMomPrice(ticker,months[idx-1]);const p0=getMomPrice(ticker,months[idx-nPeriod]);
+  var p1=getMomPrice(ticker,months[idx-1]);var p0=getMomPrice(ticker,months[idx-nPeriod]);
   if(!p1||!p0||p0<=0) return null;
-  const volN=Math.min(nPeriod-1,12);
-  const vol=momCalcVol(ticker,months,idx,volN);
+  var volN=Math.min(nPeriod-1,12);
+  var vol=momCalcVol(ticker,months,idx,volN);
   if(!vol||vol<=0) return null;
   return (p1/p0-1)/vol;
 }
 
 function momCalcScore(ticker,months,idx){
-  const z12=momCalcZ(ticker,months,idx,13);const z6=momCalcZ(ticker,months,idx,7);const z3=momCalcZ(ticker,months,idx,4);
+  var z12=momCalcZ(ticker,months,idx,13);var z6=momCalcZ(ticker,months,idx,7);var z3=momCalcZ(ticker,months,idx,4);
   if(z12===null||z6===null||z3===null) return null;
   return 0.5*z12+0.3*z6+0.2*z3;
 }
 
-function momCalcCorr(t1,t2,months,idx,n=12){
+function momCalcCorr(t1,t2,months,idx,n){
+  n=n||12;
   if(idx<n+1) return 0;
-  const r1=[],r2=[];
-  for(let i=idx-n;i<idx;i++){
-    const a0=getMomPrice(t1,months[i-1]),a1=getMomPrice(t1,months[i]);
-    const b0=getMomPrice(t2,months[i-1]),b1=getMomPrice(t2,months[i]);
+  var r1=[],r2=[];
+  for(var i=idx-n;i<idx;i++){
+    var a0=getMomPrice(t1,months[i-1]),a1=getMomPrice(t1,months[i]);
+    var b0=getMomPrice(t2,months[i-1]),b1=getMomPrice(t2,months[i]);
     if(a0&&a1&&a0>0&&b0&&b1&&b0>0){r1.push(a1/a0-1);r2.push(b1/b0-1);}
   }
   if(r1.length<6) return 0;
-  const m1=r1.reduce((a,b)=>a+b,0)/r1.length;const m2=r2.reduce((a,b)=>a+b,0)/r2.length;
-  let num=0,d1=0,d2=0;
-  r1.forEach((v,i)=>{num+=(v-m1)*(r2[i]-m2);d1+=(v-m1)**2;d2+=(r2[i]-m2)**2;});
+  var m1=r1.reduce(function(a,b){return a+b;},0)/r1.length;var m2=r2.reduce(function(a,b){return a+b;},0)/r2.length;
+  var num=0,d1=0,d2=0;
+  r1.forEach(function(v,i){num+=(v-m1)*(r2[i]-m2);d1+=(v-m1)*(v-m1);d2+=(r2[i]-m2)*(r2[i]-m2);});
   return num/Math.sqrt((d1*d2)||1);
 }
 
@@ -1310,375 +1302,335 @@ function momShieldExposure(score){
 }
 
 function momWeights(scores){
-  const n=scores.length; if(n===0) return []; if(n===1) return [1.0];
-  const CAP=0.4,EPS=1e-6;
-  const minS=Math.min(...scores);
-  let sh=scores.map(s=>Math.max(s-minS,EPS));
-  const shSum=sh.reduce((a,b)=>a+b,0)||EPS;
-  let w=sh.map(s=>s/shSum);
-  for(let it=0;it<20;it++){
-    const capped=w.map(x=>x>=CAP);
+  var n=scores.length; if(n===0) return []; if(n===1) return [1.0];
+  var CAP=0.4,EPS=1e-6;
+  var minS=Math.min.apply(null,scores);
+  var sh=scores.map(function(s){return Math.max(s-minS,EPS);});
+  var shSum=sh.reduce(function(a,b){return a+b;},0)||EPS;
+  var w=sh.map(function(s){return s/shSum;});
+  for(var it=0;it<20;it++){
+    var capped=w.map(function(x){return x>=CAP;});
     if(!capped.some(Boolean)) break;
-    const capTotal=capped.filter(Boolean).length*CAP;
-    const freeSum=sh.filter((_,i)=>!capped[i]).reduce((a,b)=>a+b,0)||EPS;
-    w=w.map((x,i)=>capped[i]?CAP:(sh[i]/freeSum)*(1-capTotal));
-    if(w.some(x=>isNaN(x))){w=Array(n).fill(1/n);break;}
+    var capTotal=capped.filter(Boolean).length*CAP;
+    var freeSum=sh.filter(function(_,i){return !capped[i];}).reduce(function(a,b){return a+b;},0)||EPS;
+    w=w.map(function(x,i){return capped[i]?CAP:(sh[i]/freeSum)*(1-capTotal);});
+    if(w.some(function(x){return isNaN(x);})){w=Array(n).fill(1/n);break;}
   }
   return w;
 }
 
 function calcMomSignalAt(months,idx,cfg){
-  const enabledAssets=MOM_ASSET_DEFS.filter(a=>a.enabled).map(a=>a.ticker);
-  const cashRate=getCashRate(months[idx]);
-  const threshold=cashRate+(cfg.buffer||0);
-  const shieldScore=cfg.shieldScore||70;
-  const corrThresh=momCorrThreshold(shieldScore,cfg.corrMode||'dynamic');
-  const scoreMap={},r12Map={};
-  for(const t of enabledAssets){
-    const s=momCalcScore(t,months,idx); if(s!==null) scoreMap[t]=s;
-    const p1=getMomPrice(t,months[idx-1]);const p0=idx>=13?getMomPrice(t,months[idx-13]):null;
+  var enabledAssets=MOM_ASSET_DEFS.filter(function(a){return a.enabled;}).map(function(a){return a.ticker;});
+  var cashRate=getCashRate(months[idx]);
+  var threshold=cashRate+(cfg.buffer||0);
+  var shieldScore=cfg.shieldScore||70;
+  var corrThresh=momCorrThreshold(shieldScore,cfg.corrMode||'dynamic');
+  var scoreMap={},r12Map={};
+  for(var i=0;i<enabledAssets.length;i++){
+    var t=enabledAssets[i];
+    var s=momCalcScore(t,months,idx); if(s!==null) scoreMap[t]=s;
+    var p1=getMomPrice(t,months[idx-1]);var p0=idx>=13?getMomPrice(t,months[idx-13]):null;
     if(p1&&p0&&p0>0) r12Map[t]=p1/p0-1;
   }
-  const valid=enabledAssets.filter(t=>r12Map[t]!==undefined&&scoreMap[t]!==undefined);
-  if(!valid.length) return {rawHoldings:{[MOM_CASH_TICKER]:1.0},cashRate,threshold,eligible:[],tsPass:[],scoreMap,r12Map,corrThresh,reason:'資料不足'};
-  const tsPass=valid.filter(t=>r12Map[t]>threshold);
-  if(!tsPass.length) return {rawHoldings:{[MOM_CASH_TICKER]:1.0},cashRate,threshold,eligible:[],tsPass:[],scoreMap,r12Map,corrThresh,reason:`TS未通過`};
-  const tsMean=tsPass.reduce((s,t)=>s+(scoreMap[t]||0),0)/tsPass.length;
-  let csPass=tsPass.filter(t=>(scoreMap[t]||0)>tsMean); if(!csPass.length) csPass=[...tsPass];
-  csPass.sort((a,b)=>(scoreMap[b]||0)-(scoreMap[a]||0));
-  const selected=[];
-  for(const t of csPass){
-    if(selected.every(f=>Math.abs(momCalcCorr(t,f,months,idx))<corrThresh)) selected.push(t);
+  var valid=enabledAssets.filter(function(t){return r12Map[t]!==undefined&&scoreMap[t]!==undefined;});
+  if(!valid.length) return {rawHoldings:{},cashHoldings:{[MOM_CASH_TICKER]:1.0},cashRate:cashRate,threshold:threshold,eligible:[],tsPass:[],scoreMap:scoreMap,r12Map:r12Map,corrThresh:corrThresh,reason:'\u8cc7\u6599\u4e0d\u8db3'};
+  var tsPass=valid.filter(function(t){return r12Map[t]>threshold;});
+  var rawHoldings={};
+  if(!tsPass.length){rawHoldings[MOM_CASH_TICKER]=1.0;return {rawHoldings:rawHoldings,cashRate:cashRate,threshold:threshold,eligible:[],tsPass:[],scoreMap:scoreMap,r12Map:r12Map,corrThresh:corrThresh,reason:'TS\u672a\u901a\u904e'};}
+  var tsMean=tsPass.reduce(function(s,t){return s+(scoreMap[t]||0);},0)/tsPass.length;
+  var csPass=tsPass.filter(function(t){return (scoreMap[t]||0)>tsMean;}); if(!csPass.length) csPass=tsPass.slice();
+  csPass.sort(function(a,b){return (scoreMap[b]||0)-(scoreMap[a]||0);});
+  var selected=[];
+  for(var j=0;j<csPass.length;j++){
+    var tt=csPass[j];
+    if(selected.every(function(f){return Math.abs(momCalcCorr(tt,f,months,idx))<corrThresh;})) selected.push(tt);
     if(selected.length>=(cfg.maxHold||5)) break;
   }
-  if(!selected.length) return {rawHoldings:{[MOM_CASH_TICKER]:1.0},cashRate,threshold,eligible:csPass,tsPass,scoreMap,r12Map,corrThresh,reason:'相關性過濾後無標的'};
-  const selScores=selected.map(t=>Math.max(scoreMap[t]||0,0.001));
-  const weights=momWeights(selScores);
-  const rawHoldings={};
-  selected.forEach((t,i)=>{rawHoldings[t]=weights[i];});
-  return {rawHoldings,cashRate,threshold,corrThresh,eligible:csPass,tsPass,selected,scoreMap,r12Map,reason:selected.map((t,i)=>`${t}(${(weights[i]*100).toFixed(0)}%)`).join('+')};
+  if(!selected.length){rawHoldings[MOM_CASH_TICKER]=1.0;return {rawHoldings:rawHoldings,cashRate:cashRate,threshold:threshold,eligible:csPass,tsPass:tsPass,scoreMap:scoreMap,r12Map:r12Map,corrThresh:corrThresh,reason:'\u76f8\u95dc\u6027\u904e\u6ffe\u5f8c\u7121\u6a19\u7684'};}
+  var selScores=selected.map(function(t){return Math.max(scoreMap[t]||0,0.001);});
+  var weights=momWeights(selScores);
+  selected.forEach(function(t,i){rawHoldings[t]=weights[i];});
+  return {rawHoldings:rawHoldings,cashRate:cashRate,threshold:threshold,corrThresh:corrThresh,eligible:csPass,tsPass:tsPass,selected:selected,scoreMap:scoreMap,r12Map:r12Map,reason:selected.map(function(t,i){return t+'('+(weights[i]*100).toFixed(0)+'%)';}).join('+')};
 }
 
 function momApplyShield(rawHoldings,shieldScore,useShield){
-  if(!useShield) return {...rawHoldings};
-  const exp=momShieldExposure(shieldScore);
+  if(!useShield) return Object.assign({},rawHoldings);
+  var exp=momShieldExposure(shieldScore);
   if(exp<=0) return {[MOM_CASH_TICKER]:1.0};
-  const scaled={};
-  for(const [t,w] of Object.entries(rawHoldings)) scaled[t]=(scaled[t]||0)+w*exp;
+  var scaled={};
+  Object.entries(rawHoldings).forEach(function(kv){scaled[kv[0]]=(scaled[kv[0]]||0)+kv[1]*exp;});
   scaled[MOM_CASH_TICKER]=(scaled[MOM_CASH_TICKER]||0)+(1-exp);
   return scaled;
 }
 
 function calcMomCurrentSignal(){
-  const spyPrices=MOM_PRICES['SPY'];
-  if(!spyPrices||spyPrices.length<15){$('momFetchLog').textContent='⚠ SPY 資料不足，請先抓取';return;}
-  const months=spyPrices.map(p=>p.date).sort();
-  const lastIdx=months.length-1;
-  const shieldScore=getShieldScore(months[lastIdx]+'-28');
-  const cfg={buffer:gv('momBuffer')/100,maxHold:parseInt($('momMaxHold').value)||5,corrMode:$('momCorrMode')?.value||'dynamic',shieldScore};
-  const signal=calcMomSignalAt(months,lastIdx,cfg);
-  const useShield=gc('momShieldGate');
-  let finalH=momApplyShield(signal.rawHoldings||{[MOM_CASH_TICKER]:1.0},shieldScore,useShield);
-
-  // ★ Bug修正（統一邏輯，確保合計永遠=100%）
-  // 根本問題①：!gc('momDefenseMode') 讓 SPY 下限在避險模式開啟時完全失效
-  // 根本問題②：舊 SPY 下限演算法先縮他人再補 BIL 再加 SPY，導致總和>100%
-  // 正確設計：等比縮放所有非SPY部位，直接騰出空間給SPY，合計必然=100%
-  const defenseActive=gc('momDefenseMode')&&shieldScore>=gv('momDefenseThresh');
+  var spyPrices=MOM_PRICES['SPY'];
+  if(!spyPrices||spyPrices.length<15){$('momFetchLog').textContent='\u26a0 SPY \u8cc7\u6599\u4e0d\u8db3\uff0c\u8acb\u5148\u6293\u53d6';return;}
+  var months=spyPrices.map(function(p){return p.date;}).sort();
+  var lastIdx=months.length-1;
+  var shieldScore=getShieldScore(months[lastIdx]+'-28');
+  var cfg={buffer:gv('momBuffer')/100,maxHold:parseInt($('momMaxHold').value)||5,corrMode:$('momCorrMode')?$('momCorrMode').value:'dynamic',shieldScore:shieldScore};
+  var signal=calcMomSignalAt(months,lastIdx,cfg);
+  var useShield=gc('momShieldGate');
+  var finalH=momApplyShield(signal.rawHoldings||{[MOM_CASH_TICKER]:1.0},shieldScore,useShield);
+  var defenseActive=gc('momDefenseMode')&&shieldScore>=gv('momDefenseThresh');
   if(defenseActive){
-    // 盾牌強（≥門檻）→ 全部持 SPY
     finalH={'SPY':1.0};
-  } else {
-    // MOM 模式（盾牌弱 或 避險模式關閉）→ 套用 SPY 最低倉位下限
-    if(gc('momSpyFloor')){
-      const spyFloor=gv('momSpyFloorPct')/100;
-      const curSpy=finalH['SPY']||0;
-      if(spyFloor>0&&curSpy<spyFloor){
-        // 等比縮放：所有非SPY部位同比例讓出空間，合計恆=100%
-        const scale=(1-spyFloor)/Math.max(0.0001,1-curSpy);
-        Object.keys(finalH).filter(t=>t!=='SPY').forEach(t=>{finalH[t]=(finalH[t]||0)*scale;});
-        finalH['SPY']=spyFloor;
-      }
+  } else if(gc('momSpyFloor')){
+    var spyFloor=gv('momSpyFloorPct')/100;
+    var curSpy=finalH['SPY']||0;
+    if(spyFloor>0&&curSpy<spyFloor){
+      var scale=(1-spyFloor)/Math.max(0.0001,1-curSpy);
+      Object.keys(finalH).filter(function(t){return t!=='SPY';}).forEach(function(t){finalH[t]=(finalH[t]||0)*scale;});
+      finalH['SPY']=spyFloor;
     }
   }
-
   $('momSignalSection').classList.remove('hidden');
   $('momCashRateDisplay').textContent=(signal.cashRate*100).toFixed(2)+'%';
-  $('momMuDisplay').textContent=`門檻 ${(signal.threshold*100).toFixed(2)}%  |  相關閾值 ${(signal.corrThresh||0.75).toFixed(2)}`;
-  const allScored=Object.entries(signal.scoreMap||{}).sort((a,b)=>b[1]-a[1]);
-  const maxAbsS=Math.max(...allScored.map(([t,s])=>Math.abs(s)),0.01);
-  const tsSet=new Set(signal.tsPass||[]);const csSet=new Set(signal.eligible||[]);
-  $('momSignalRows').innerHTML=allScored.map(([t,s])=>{
-    const ts=tsSet.has(t),cs=csSet.has(t),w=finalH[t];
-    const r12=signal.r12Map?.[t];
-    const bw=Math.round(Math.min(100,Math.abs(s)/maxAbsS*100));
-    const bc=s>=0?'var(--teal)':'var(--red)';
-    const nc=w&&w>0.005?'var(--teal)':cs?'var(--accent)':ts?'var(--muted)':'var(--dim)';
-    return `<div class="mom-signal-row">
-      <span style="width:42px;font-weight:700;color:${nc}">${t}</span>
-      <span style="width:54px;color:${s>=0?'var(--teal)':'var(--red)'}">${s>=0?'+':''}${s.toFixed(2)}</span>
-      <span style="width:50px;font-size:10px;color:${r12!=null?(r12>signal.threshold?'var(--green)':'var(--red)'):'var(--dim)'}">${r12!=null?(r12*100).toFixed(1)+'%':'--'}</span>
-      <div class="mom-bar-wrap"><div class="mom-bar-fill" style="width:${bw}%;background:${bc};opacity:${cs?1:0.2}"></div></div>
-      <span style="width:26px;text-align:center;font-weight:700;color:${ts?'var(--green)':'var(--red)'}">${ts?'✓':'✗'}</span>
-      <span style="width:26px;text-align:center;font-weight:700;color:${cs?'var(--teal)':'var(--dim)'}">${ts?(cs?'✓':'✗'):'—'}</span>
-      <span style="width:60px;text-align:right;font-weight:700;color:${w&&w>0.005?'var(--teal)':'var(--dim)'}">
-        ${w&&w>0.005?'● '+(w*100).toFixed(1)+'%':''}</span></div>`;
+  $('momMuDisplay').textContent='\u9580\u6cd5 '+(signal.threshold*100).toFixed(2)+'%  |  \u76f8\u95dc\u95a1\u5024 '+(signal.corrThresh||0.75).toFixed(2);
+  var allScored=Object.entries(signal.scoreMap||{}).sort(function(a,b){return b[1]-a[1];});
+  var maxAbsS=Math.max.apply(null,allScored.map(function(e){return Math.abs(e[1]);}));if(maxAbsS<0.01)maxAbsS=0.01;
+  var tsSet=new Set(signal.tsPass||[]);var csSet=new Set(signal.eligible||[]);
+  $('momSignalRows').innerHTML=allScored.map(function(e){
+    var t=e[0],s=e[1];
+    var ts=tsSet.has(t),cs=csSet.has(t),w=finalH[t];
+    var r12=signal.r12Map?signal.r12Map[t]:undefined;
+    var bw=Math.round(Math.min(100,Math.abs(s)/maxAbsS*100));
+    var bc=s>=0?'var(--teal)':'var(--red)';
+    var nc=w&&w>0.005?'var(--teal)':cs?'var(--accent)':ts?'var(--muted)':'var(--dim)';
+    return '<div class="mom-signal-row">'+
+      '<span style="width:42px;font-weight:700;color:'+nc+'">'+t+'</span>'+
+      '<span style="width:54px;color:'+(s>=0?'var(--teal)':'var(--red)')+'">'+(s>=0?'+':'')+s.toFixed(2)+'</span>'+
+      '<span style="width:50px;font-size:10px;color:'+(r12!=null?(r12>signal.threshold?'var(--green)':'var(--red)'):'var(--dim)')+'">'+
+        (r12!=null?(r12*100).toFixed(1)+'%':'--')+'</span>'+
+      '<div class="mom-bar-wrap"><div class="mom-bar-fill" style="width:'+bw+'%;background:'+bc+';opacity:'+(cs?1:0.2)+'"></div></div>'+
+      '<span style="width:26px;text-align:center;font-weight:700;color:'+(ts?'var(--green)':'var(--red)')+'">'+(ts?'\u2713':'\u2717')+'</span>'+
+      '<span style="width:26px;text-align:center;font-weight:700;color:'+(cs?'var(--teal)':'var(--dim)')+'">'+(ts?(cs?'\u2713':'\u2717'):'\u2014')+'</span>'+
+      '<span style="width:60px;text-align:right;font-weight:700;color:'+(w&&w>0.005?'var(--teal)':'var(--dim)')+'">'+(w&&w>0.005?'\u25cf '+(w*100).toFixed(1)+'%':'')+'</span></div>';
   }).join('');
   $('momRecommendHoldings').innerHTML=Object.entries(finalH)
-    .filter(([t,w])=>w>0.005).sort((a,b)=>b[1]-a[1])
-    .map(([t,w])=>`<span class="holding-chip ${t===MOM_CASH_TICKER?'cash':''}">${t} ${(w*100).toFixed(1)}%</span>`).join(' ');
-  if(useShield&&!defenseActive){
-    const exp=momShieldExposure(shieldScore);
-    $('momRecommendHoldings').innerHTML+=` <span style="font-size:11px;color:var(--muted)">（盾牌${shieldScore.toFixed(0)}分→曝露${(exp*100).toFixed(0)}%）</span>`;
-  }
-  if(gc('momDefenseMode')){
-    $('momRecommendHoldings').innerHTML+=` <span style="font-size:11px;color:${defenseActive?'var(--accent)':'var(--teal)'}">（避險模式：盾${shieldScore.toFixed(0)}分${defenseActive?'≥':'<'}門檻→${defenseActive?'持SPY':'MOM'}）</span>`;
-  }
-  const badge=$('momCurrentBadge'); badge.classList.remove('hidden');
-  badge.textContent=`MOM: ${Object.entries(finalH).filter(([t,w])=>w>0.005&&t!==MOM_CASH_TICKER).map(([t])=>t).slice(0,2).join('+')||'BIL'}`;
+    .filter(function(e){return e[1]>0.005;}).sort(function(a,b){return b[1]-a[1];})
+    .map(function(e){return '<span class="holding-chip '+(e[0]===MOM_CASH_TICKER?'cash':'')+'">'+e[0]+' '+((e[1]*100).toFixed(1))+'%</span>';}).join(' ');
+  var badge=$('momCurrentBadge'); badge.classList.remove('hidden');
+  badge.textContent='MOM: '+(Object.entries(finalH).filter(function(e){return e[1]>0.005&&e[0]!==MOM_CASH_TICKER;}).map(function(e){return e[0];}).slice(0,2).join('+')||'BIL');
 }
 
 function runMomBacktest(){
-  const spyPrices=MOM_PRICES['SPY'];
-  if(!spyPrices||spyPrices.length<15){alert('請先抓取 ETF 資料！');return;}
-  const cfg={buffer:gv('momBuffer')/100,maxHold:parseInt($('momMaxHold').value)||5,shieldGate:gc('momShieldGate'),corrMode:$('momCorrMode')?.value||'dynamic',tradeCost:gv('momTradeCost')/100||0.001,spyFloor:gc('momSpyFloor')?(gv('momSpyFloorPct')/100):0,defenseMode:gc('momDefenseMode'),defenseThresh:gv('momDefenseThresh')||50};
-  const MIN_WARM=14;
-  const rawStart=($('momStart').value||'').trim().slice(0,7);
-  const rawEnd=($('momEnd').value||'').trim().slice(0,7);
-  $('momBacktestLog').textContent='V9.5 回測中...'; $('loadingOverlay').classList.remove('hidden'); $('loadingText').textContent='V9.5 動能回測...';
-  setTimeout(()=>{
+  var spyPrices=MOM_PRICES['SPY'];
+  if(!spyPrices||spyPrices.length<15){alert('\u8acb\u5148\u6293\u53d6 ETF \u8cc7\u6599\uff01');return;}
+  var cfg={buffer:gv('momBuffer')/100,maxHold:parseInt($('momMaxHold').value)||5,
+    shieldGate:gc('momShieldGate'),corrMode:$('momCorrMode')?$('momCorrMode').value:'dynamic',
+    tradeCost:gv('momTradeCost')/100||0.001,spyFloor:gc('momSpyFloor')?(gv('momSpyFloorPct')/100):0,
+    defenseMode:gc('momDefenseMode'),defenseThresh:gv('momDefenseThresh')||50};
+  var MIN_WARM=14;
+  var rawStart=($('momStart').value||'').trim().slice(0,7);
+  var rawEnd=($('momEnd').value||'').trim().slice(0,7);
+  $('momBacktestLog').textContent='V9.5 \u56de\u6e2c\u4e2d...'; $('loadingOverlay').classList.remove('hidden'); $('loadingText').textContent='V9.5 \u52d5\u80fd\u56de\u6e2c...';
+  setTimeout(function(){
     try{
-      const months=spyPrices.map(p=>p.date).sort();
-      let calcStart=MIN_WARM;
-      if(rawStart){for(let i=MIN_WARM;i<months.length;i++){if(months[i]>=rawStart){calcStart=i;break;}}}
-      let calcEnd=months.length-2;
-      if(rawEnd){for(let i=months.length-2;i>=MIN_WARM;i--){if(months[i]<=rawEnd){calcEnd=i;break;}}}
-      if(calcStart>calcEnd){alert('區間無有效資料');return;}
-      const INIT=100000; let nav=INIT,spyNav=INIT;
-      const records=[],trades=[];
-      let holdings={[MOM_CASH_TICKER]:1.0};
-      for(let i=calcStart;i<=calcEnd;i++){
-        const signalMonth=months[i],nextMonth=months[i+1];
-        const shieldScore=100;
-        const sigCfg={...cfg,shieldScore};
-        const signal=calcMomSignalAt(months,i,sigCfg);
-        let scaledH={...(signal.rawHoldings||{[MOM_CASH_TICKER]:1.0})};
-
-        // ── 方案③+②：統一邏輯（確保合計永遠=100%）──
-        // 避險替代模式優先；MOM模式下才套用SPY下限
-        // SPY下限用等比縮放：scale=(1-floor)/(1-curSpy)，無需補BIL
-        const ss=cfg.defenseMode?getShieldScore(signalMonth+'-28'):0;
-        const defenseOn=cfg.defenseMode&&ss>=cfg.defenseThresh;
-        if(defenseOn){
-          scaledH={'SPY':1.0};
-        } else if(cfg.spyFloor>0){
-          const curSpy=scaledH['SPY']||0;
+      var months=spyPrices.map(function(p){return p.date;}).sort();
+      var calcStart=MIN_WARM;
+      if(rawStart){for(var i=MIN_WARM;i<months.length;i++){if(months[i]>=rawStart){calcStart=i;break;}}}
+      var calcEnd=months.length-2;
+      if(rawEnd){for(var i2=months.length-2;i2>=MIN_WARM;i2--){if(months[i2]<=rawEnd){calcEnd=i2;break;}}}
+      if(calcStart>calcEnd){alert('\u5340\u9593\u7121\u6709\u6548\u8cc7\u6599');return;}
+      var INIT=100000; var nav=INIT,spyNav=INIT;
+      var records=[],trades=[];
+      var holdings={[MOM_CASH_TICKER]:1.0};
+      for(var idx=calcStart;idx<=calcEnd;idx++){
+        var signalMonth=months[idx],nextMonth=months[idx+1];
+        var sigCfg=Object.assign({},cfg,{shieldScore:100});
+        var signal=calcMomSignalAt(months,idx,sigCfg);
+        var scaledH=Object.assign({},signal.rawHoldings||{[MOM_CASH_TICKER]:1.0});
+        var ss=cfg.defenseMode?getShieldScore(signalMonth+'-28'):0;
+        var defenseOn=cfg.defenseMode&&ss>=cfg.defenseThresh;
+        if(defenseOn){ scaledH={'SPY':1.0}; }
+        else if(cfg.spyFloor>0){
+          var curSpy=scaledH['SPY']||0;
           if(curSpy<cfg.spyFloor){
-            const scale=(1-cfg.spyFloor)/Math.max(0.0001,1-curSpy);
-            Object.keys(scaledH).filter(t=>t!=='SPY').forEach(t=>{scaledH[t]=(scaledH[t]||0)*scale;});
+            var sc=(1-cfg.spyFloor)/Math.max(0.0001,1-curSpy);
+            Object.keys(scaledH).filter(function(t){return t!=='SPY';}).forEach(function(t){scaledH[t]=(scaledH[t]||0)*sc;});
             scaledH['SPY']=cfg.spyFloor;
           }
         }
-
-        const TRADE_COST=cfg.tradeCost??0.001;
-        let turnover=0;
-        for(const t of new Set([...Object.keys(holdings),...Object.keys(scaledH)])){
-          const wOld=holdings[t]||0,wNew=scaledH[t]||0;
-          turnover+=Math.abs(wNew-wOld);
-        }
-        const costDrag=(turnover/2)*TRADE_COST;
-        let portRet=0;
-        for(const [ticker,w] of Object.entries(holdings)){
-          const p0=getMomPrice(ticker,signalMonth),p1=getMomPrice(ticker,nextMonth);
+        var TRADE_COST=cfg.tradeCost||0.001;
+        var turnover=0;
+        var allTickers2=new Set(Object.keys(holdings).concat(Object.keys(scaledH)));
+        allTickers2.forEach(function(t){var wOld=holdings[t]||0,wNew=scaledH[t]||0;turnover+=Math.abs(wNew-wOld);});
+        var costDrag=(turnover/2)*TRADE_COST;
+        var portRet=0;
+        Object.entries(holdings).forEach(function(kv){
+          var ticker=kv[0],w=kv[1];
+          var p0=getMomPrice(ticker,signalMonth),p1=getMomPrice(ticker,nextMonth);
           if(p0&&p1&&p0>0){
-            const tickerRet=p1/p0-1; portRet+=w*tickerRet;
-            trades.push({entryMonth:signalMonth,exitMonth:nextMonth,ticker,weight:w,entryPrice:p0,exitPrice:p1,tickerRet,contribution:w*tickerRet,isCash:ticker===MOM_CASH_TICKER,shieldExp:1});
+            var tickerRet=p1/p0-1; portRet+=w*tickerRet;
+            trades.push({entryMonth:signalMonth,exitMonth:nextMonth,ticker:ticker,weight:w,entryPrice:p0,exitPrice:p1,tickerRet:tickerRet,contribution:w*tickerRet,isCash:ticker===MOM_CASH_TICKER});
           }
-        }
+        });
         portRet-=costDrag; nav*=(1+portRet);
-        const sp0=getMomPrice('SPY',signalMonth),sp1=getMomPrice('SPY',nextMonth);
-        if(sp0&&sp1&&sp0>0) spyNav*=(1+sp1/sp0-1);
-        const curShield=getShieldScore(signalMonth+'-28');
-        records.push({month:nextMonth,nav,spyNav,holdings:{...scaledH},portRet,shieldScore:curShield,shieldExp:1,cashRate:signal.cashRate,signal});
+        var sp0m=getMomPrice('SPY',signalMonth),sp1m=getMomPrice('SPY',nextMonth);
+        if(sp0m&&sp1m&&sp0m>0) spyNav*=(1+sp1m/sp0m-1);
+        var curShield=getShieldScore(signalMonth+'-28');
+        records.push({month:nextMonth,nav:nav,spyNav:spyNav,holdings:Object.assign({},scaledH),portRet:portRet,shieldScore:curShield,cashRate:signal.cashRate,signal:signal});
         holdings=scaledH;
       }
-      if(records.length<6){alert('回測結果資料太少');return;}
-      const shieldMonthly=buildShieldMonthly(records[0].month,records[records.length-1].month);
-      MOM_RESULT={records,initial:INIT,cfg,shieldMonthly,trades};
+      if(records.length<6){alert('\u56de\u6e2c\u7d50\u679c\u8cc7\u6599\u592a\u5c11');return;}
+      var shieldMonthly=buildShieldMonthly(records[0].month,records[records.length-1].month);
+      MOM_RESULT={records:records,initial:INIT,cfg:cfg,shieldMonthly:shieldMonthly,trades:trades};
       renderMomUI(); overlaymomOnShieldChart();
-      const range=`${records[0].month} ~ ${records[records.length-1].month}`;
-      $('momBacktestLog').textContent=`✅ 完成，共 ${records.length} 個月（${range}）`;
+      var range=records[0].month+' ~ '+records[records.length-1].month;
+      $('momBacktestLog').textContent='\u2705 \u5b8c\u6210\uff0c\u5171 '+records.length+' \u500b\u6708\uff08'+range+'\uff09';
       $('momBacktestLog').style.color='var(--teal)';
-    }catch(err){$('momBacktestLog').textContent='❌ '+err.message;$('momBacktestLog').style.color='var(--red)';console.error(err);}
+    }catch(err){$('momBacktestLog').textContent='\u274c '+err.message;$('momBacktestLog').style.color='var(--red)';console.error(err);}
     finally{$('loadingOverlay').classList.add('hidden');}
   },60);
 }
 
 function buildShieldMonthly(startMonth,endMonth){
   if(!BT_RESULT) return null;
-  const cv=BT_RESULT.cv,keys=['A','B','C','D','BH'];
-  const startDateStr=startMonth+'-01';
-  let startIdx=0;
-  for(let i=0;i<cv.length;i++){if(cv[i].d>=startDateStr){startIdx=i;break;}}
-  const baseNav={};keys.forEach(k=>{baseNav[k]=cv[startIdx]?cv[startIdx][k]:null;});
-  const byMonth={};
-  cv.forEach(r=>{if(r.d>=startDateStr){const m=r.d.slice(0,7);if(m<=endMonth) byMonth[m]=r;}});
-  const result={months:[],A:[],B:[],C:[],D:[],BH:[]};
-  Object.keys(byMonth).sort().forEach(m=>{
-    const r=byMonth[m];result.months.push(m);
-    keys.forEach(k=>{const base=baseNav[k];result[k].push(base&&base>0?(r[k]/base)*100000:null);});
+  var cv=BT_RESULT.cv,keys=['A','B','C','D','BH'];
+  var startDateStr=startMonth+'-01';
+  var startIdx=0;
+  for(var i=0;i<cv.length;i++){if(cv[i].d>=startDateStr){startIdx=i;break;}}
+  var baseNav={};
+  keys.forEach(function(k){baseNav[k]=cv[startIdx]?cv[startIdx][k]:null;});
+  var byMonth={};
+  cv.forEach(function(r){if(r.d>=startDateStr){var m=r.d.slice(0,7);if(m<=endMonth) byMonth[m]=r;}});
+  var result={months:[],A:[],B:[],C:[],D:[],BH:[]};
+  Object.keys(byMonth).sort().forEach(function(m){
+    var r=byMonth[m];result.months.push(m);
+    keys.forEach(function(k){var base=baseNav[k];result[k].push(base&&base>0?(r[k]/base)*100000:null);});
   });
   return result;
 }
 
 function renderMomUI(){
-  const {records,initial,cfg}=MOM_RESULT;
+  var res=MOM_RESULT;
+  var records=res.records,initial=res.initial,cfg=res.cfg;
   $('momResultSection').classList.remove('hidden');
-  const last=records[records.length-1],first=records[0];
-  const years=(new Date(last.month+'-01')-new Date(first.month+'-01'))/(365.25*86400000);
-  const totalRet=last.nav/initial-1;
-  const cagr=years>0?Math.pow(1+Math.max(totalRet,-0.999),1/years)-1:0;
-  const spyRet=last.spyNav/initial-1;
-  const spyCagr=years>0?Math.pow(1+Math.max(spyRet,-0.999),1/years)-1:0;
-  let peak=records[0].nav,mdd=0;
-  records.forEach(r=>{if(r.nav>peak)peak=r.nav;const dd=(r.nav-peak)/peak;if(dd<mdd)mdd=dd;});
-  const monthRets=records.map(r=>r.portRet);
-  const avgRet=monthRets.reduce((a,b)=>a+b,0)/monthRets.length;
-  const std=Math.sqrt(monthRets.reduce((a,b)=>a+(b-avgRet)**2,0)/monthRets.length)*Math.sqrt(12);
-  const sharpe=std>0?(cagr-0.025)/std:0;
-  const cashMonths=records.filter(r=>r.holdings[MOM_CASH_TICKER]>=0.99).length;
-  const sm=MOM_RESULT.shieldMonthly;
-  const ABCD_COLORS={A:'#ffb830',B:'#00e5a0',C:'#7eb8ff',D:'#b388ff'};
-  const ABCD_LABELS={A:'方法 A',B:'方法 B',C:'方法 C',D:'方法 D'};
+  var last=records[records.length-1],first=records[0];
+  var years=(new Date(last.month+'-01')-new Date(first.month+'-01'))/(365.25*86400000);
+  var totalRet=last.nav/initial-1;
+  var cagr=years>0?Math.pow(1+Math.max(totalRet,-0.999),1/years)-1:0;
+  var spyRet=last.spyNav/initial-1;
+  var spyCagr=years>0?Math.pow(1+Math.max(spyRet,-0.999),1/years)-1:0;
+  var peak=records[0].nav,mdd=0;
+  records.forEach(function(r){if(r.nav>peak)peak=r.nav;var dd=(r.nav-peak)/peak;if(dd<mdd)mdd=dd;});
+  var monthRets=records.map(function(r){return r.portRet;});
+  var avgRet=monthRets.reduce(function(a,b){return a+b;},0)/monthRets.length;
+  var std=Math.sqrt(monthRets.reduce(function(a,b){return a+(b-avgRet)*(b-avgRet);},0)/monthRets.length)*Math.sqrt(12);
+  var sharpe=std>0?(cagr-0.025)/std:0;
+  var cashMonths=records.filter(function(r){return r.holdings[MOM_CASH_TICKER]>=0.99;}).length;
+  var sm=MOM_RESULT.shieldMonthly;
+  var ABCD_COLORS={A:'#ffb830',B:'#00e5a0',C:'#7eb8ff',D:'#b388ff'};
+  var ABCD_LABELS={A:'\u65b9\u6cd5 A',B:'\u65b9\u6cd5 B',C:'\u65b9\u6cd5 C',D:'\u65b9\u6cd5 D'};
   function shieldMetrics(key){
     if(!sm||!sm[key]||!sm[key].length) return null;
-    const vals=sm[key].filter(v=>v!==null); if(vals.length<2) return null;
-    const tr=vals[vals.length-1]/vals[0]-1;
-    const yrs=sm.months.length/12;
-    const cagr2=yrs>0?Math.pow(1+Math.max(tr,-0.999),1/yrs)-1:0;
-    let pk=vals[0],mdd2=0; vals.forEach(v=>{if(v>pk)pk=v;const dd=(v-pk)/pk;if(dd<mdd2)mdd2=dd;});
-    const mRets=[]; for(let i=1;i<vals.length;i++) mRets.push((vals[i]-vals[i-1])/vals[i-1]);
-    const ar=mRets.reduce((a,b)=>a+b,0)/(mRets.length||1);
-    const sd=Math.sqrt(mRets.reduce((a,b)=>a+(b-ar)**2,0)/(mRets.length||1))*Math.sqrt(12);
-    const sh=sd>0?(cagr2-0.025)/sd:0;
-    return {tr,cagr:cagr2,mdd:mdd2,sharpe:sh,final:vals[vals.length-1]};
+    var vals=sm[key].filter(function(v){return v!==null;}); if(vals.length<2) return null;
+    var tr=vals[vals.length-1]/vals[0]-1;
+    var yrs=sm.months.length/12;
+    var cagr2=yrs>0?Math.pow(1+Math.max(tr,-0.999),1/yrs)-1:0;
+    var pk2=vals[0],mdd2=0; vals.forEach(function(v){if(v>pk2)pk2=v;var dd=(v-pk2)/pk2;if(dd<mdd2)mdd2=dd;});
+    var mRets=[]; for(var i=1;i<vals.length;i++) mRets.push((vals[i]-vals[i-1])/vals[i-1]);
+    var ar=mRets.reduce(function(a,b){return a+b;},0)/(mRets.length||1);
+    var sd=Math.sqrt(mRets.reduce(function(a,b){return a+(b-ar)*(b-ar);},0)/(mRets.length||1))*Math.sqrt(12);
+    var sh=sd>0?(cagr2-0.025)/sd:0;
+    return {tr:tr,cagr:cagr2,mdd:mdd2,sharpe:sh,final:vals[vals.length-1]};
   }
-  const abcdCards=sm?['A','B','C','D'].map(k=>{
-    const m=shieldMetrics(k); if(!m) return '';
-    return {label:ABCD_LABELS[k],sub:'盾牌策略',color:k==='A'?'yellow':k==='B'?'green':k==='C'?'accent':'purple',
-      rows:[['最終淨值',`$${Math.round(m.final).toLocaleString()}`,'white'],['區間報酬',`${m.tr>=0?'+':''}${(m.tr*100).toFixed(1)}%`,m.tr>=0?'tg':'tr'],['CAGR',`${(m.cagr*100).toFixed(2)}%`,''],['MDD',`${(m.mdd*100).toFixed(2)}%`,'tr'],['Sharpe',m.sharpe.toFixed(2),'tg']]};
+  var abcdCards=sm?['A','B','C','D'].map(function(k){
+    var m=shieldMetrics(k); if(!m) return null;
+    return {label:ABCD_LABELS[k],sub:'\u76fe\u724c\u7b56\u7565',color:k==='A'?'yellow':k==='B'?'green':k==='C'?'accent':'purple',
+      rows:[['\u6700\u7d42\u6de8\u5024','$'+Math.round(m.final).toLocaleString(),'white'],['\u5340\u9593\u5831\u916c',(m.tr>=0?'+':'')+(m.tr*100).toFixed(1)+'%',m.tr>=0?'tg':'tr'],['CAGR',(m.cagr*100).toFixed(2)+'%',''],['\u6700\u5927\u56de\u64a4',(m.mdd*100).toFixed(2)+'%','tr'],['Sharpe',m.sharpe.toFixed(2),'tg']]};
   }).filter(Boolean):[];
   $('momMetricsGrid').innerHTML=[
-    {label:'動能輪動',sub:'MOM策略',color:'teal',rows:[['最終淨值',`$${Math.round(last.nav).toLocaleString()}`,'white'],['區間報酬',`${totalRet>=0?'+':''}${(totalRet*100).toFixed(1)}%`,totalRet>=0?'tg':'tr'],['CAGR',`${(cagr*100).toFixed(2)}%`,'tt'],['MDD',`${(mdd*100).toFixed(2)}%`,'tr'],['Sharpe',sharpe.toFixed(2),'tg'],['持現金月',`${cashMonths}月`,''],]},
-    {label:'SPY 買持',sub:'B&H基準',color:'muted',rows:[['最終淨值',`$${Math.round(last.spyNav).toLocaleString()}`,'white'],['區間報酬',`${spyRet>=0?'+':''}${(spyRet*100).toFixed(1)}%`,spyRet>=0?'tg':'tr'],['CAGR',`${(spyCagr*100).toFixed(2)}%`,''],['超額CAGR',`${((cagr-spyCagr)*100)>=0?'+':''}${((cagr-spyCagr)*100).toFixed(2)}pp`,(cagr-spyCagr)>=0?'tg':'tr']]},
-    ...abcdCards
-  ].map(({label,sub,color,rows})=>`<div class="metric-card" style="border-top:3px solid var(--${color})"><div class="m-title">${label}<span style="font-size:10px;font-weight:400;color:var(--dim);margin-left:5px">${sub}</span></div>${rows.map(([k,v,cls])=>`<div class="m-row"><span>${k}</span><span class="m-val ${cls||''}">${v}</span></div>`).join('')}</div>`).join('');
+    {label:'\u52d5\u80fd\u8f2a\u52d5',sub:'MOM\u7b56\u7565',color:'teal',rows:[['\u6700\u7d42\u6de8\u5024','$'+Math.round(last.nav).toLocaleString(),'white'],['\u5340\u9593\u5831\u916c',(totalRet>=0?'+':'')+(totalRet*100).toFixed(1)+'%',totalRet>=0?'tg':'tr'],['CAGR',(cagr*100).toFixed(2)+'%','tt'],['\u6700\u5927\u56de\u64a4',(mdd*100).toFixed(2)+'%','tr'],['Sharpe',sharpe.toFixed(2),'tg'],['\u6301\u73fe\u91d1\u6708',cashMonths+'\u6708','']]},
+    {label:'SPY \u8cb7\u6301',sub:'B&H\u57fa\u6e96',color:'muted',rows:[['\u6700\u7d42\u6de8\u5024','$'+Math.round(last.spyNav).toLocaleString(),'white'],['\u5340\u9593\u5831\u916c',(spyRet>=0?'+':'')+(spyRet*100).toFixed(1)+'%',spyRet>=0?'tg':'tr'],['CAGR',(spyCagr*100).toFixed(2)+'%',''],['CAGR\u8d85\u984d',((cagr-spyCagr)*100>=0?'+':('' ))+((cagr-spyCagr)*100).toFixed(2)+'pp',(cagr-spyCagr)>=0?'tg':'tr']]},
+  ].concat(abcdCards).map(function(card){
+    return '<div class="metric-card" style="border-top:3px solid var(--'+card.color+')"><div class="m-title">'+card.label+'<span style="font-size:10px;font-weight:400;color:var(--dim);margin-left:5px">'+card.sub+'</span></div>'+card.rows.map(function(row){return '<div class="m-row"><span>'+row[0]+'</span><span class="m-val '+(row[2]||'')+'">'+row[1]+'</span></div>';}).join('')+'</div>';
+  }).join('');
   if(MOM_CHART.nav){MOM_CHART.nav.destroy();MOM_CHART.dd.destroy();}
-  const labels=records.map(r=>r.month);
-  const sc={x:{ticks:{color:'#6b7a99',maxTicksLimit:12},grid:{color:'#1a2030'}},y:{ticks:{color:'#6b7a99'},grid:{color:'#1a2030'}}};
-  const opt={responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},animation:{duration:200}};
-  const abcdDatasets=sm?['A','B','C','D'].map(k=>{
+  var labels=records.map(function(r){return r.month;});
+  var sc={x:{ticks:{color:'#6b7a99',maxTicksLimit:12},grid:{color:'#1a2030'}},y:{ticks:{color:'#6b7a99'},grid:{color:'#1a2030'}}};
+  var opt={responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},animation:{duration:200}};
+  var abcdDatasets=sm?['A','B','C','D'].map(function(k){
     if(!sm[k]) return null;
-    const monthMap={};sm.months.forEach((m,i)=>{monthMap[m]=sm[k][i];});
-    return {label:ABCD_LABELS[k],data:labels.map(m=>monthMap[m]??null),borderColor:ABCD_COLORS[k],borderWidth:1.5,pointRadius:0,borderDash:[3,3]};
+    var monthMap={};sm.months.forEach(function(m,i){monthMap[m]=sm[k][i];});
+    return {label:ABCD_LABELS[k],data:labels.map(function(m){return monthMap[m]!==undefined?monthMap[m]:null;}),borderColor:ABCD_COLORS[k],borderWidth:1.5,pointRadius:0,borderDash:[3,3]};
   }).filter(Boolean):[];
-  MOM_CHART.nav=new Chart($('momNavChart').getContext('2d'),{type:'line',data:{labels,datasets:[{label:'動能輪動 MOM',data:records.map(r=>r.nav),borderColor:'#00d4aa',borderWidth:2.5,pointRadius:0},{label:'SPY B&H',data:records.map(r=>r.spyNav),borderColor:'#3d4a66',borderWidth:1,pointRadius:0},...abcdDatasets]},options:{...opt,plugins:{legend:{labels:{color:'#6b7a99',boxWidth:10,font:{size:11}}}},scales:{...sc,y:{...sc.y,type:'logarithmic'}}}});
-  const mddData=[]; let pk2=records[0].nav;
-  records.forEach(r=>{if(r.nav>pk2)pk2=r.nav;mddData.push((r.nav-pk2)/pk2*100);});
-  const mddSpy=[]; let pk3=records[0].spyNav;
-  records.forEach(r=>{if(r.spyNav>pk3)pk3=r.spyNav;mddSpy.push((r.spyNav-pk3)/r.spyNav*100);});
-  MOM_CHART.dd=new Chart($('momDdChart').getContext('2d'),{type:'line',data:{labels,datasets:[{label:'MOM',data:mddData,borderColor:'#00d4aa',borderWidth:1,pointRadius:0,fill:true,backgroundColor:'rgba(0,212,170,0.08)'},{label:'SPY',data:mddSpy,borderColor:'#3d4a66',borderWidth:1,pointRadius:0}]},options:{...opt,plugins:{legend:{display:false}},scales:sc}});
-  $('momLogBody').innerHTML=[...records].reverse().map((r,revIdx)=>{
-    const idx=records.length-1-revIdx;
-    const prevSpy=idx>0?records[idx-1].spyNav:initial;
-    const hChips=Object.entries(r.holdings).map(([t,w])=>`<span class="holding-chip ${t===MOM_CASH_TICKER?'cash':''}">${t} <span style="opacity:.7">${(w*100).toFixed(0)}%</span></span>`).join('');
-    const retColor=r.portRet>=0?'var(--green)':'var(--red)';
-    const excess=r.portRet-(r.spyNav/prevSpy-1);
-    const excColor=excess>=0?'var(--green)':'var(--red)';
-    const tsCount=r.signal?.eligible?.length??'--';
-    const thresh=r.cashRate!=null?((r.cashRate+cfg.buffer)*100).toFixed(2)+'%':'--';
-    const ss=r.shieldScore!=null?r.shieldScore.toFixed(0):'--';
-    const ssColor=r.shieldScore>=60?'var(--green)':r.shieldScore>=40?'var(--yellow)':'var(--red)';
-    const isSPYOnly=Object.keys(r.holdings).length===1&&r.holdings['SPY']>=0.99;
-    const isBILOnly=r.holdings[MOM_CASH_TICKER]>=0.99;
-    const modeLabel=isSPYOnly?'<span style="color:var(--accent);font-size:10px">SPY</span>':isBILOnly?'<span style="color:var(--muted);font-size:10px">現金</span>':'<span style="color:var(--teal);font-size:10px">MOM</span>';
-    return `<tr class="log-row"><td class="mono" style="font-weight:700">${r.month}</td><td style="white-space:nowrap">${hChips}</td><td class="mono" style="color:${ssColor};font-weight:700">${ss}</td><td>${modeLabel}</td><td class="mono" style="text-align:center;color:${tsCount>0?'var(--teal)':'var(--red)'}">${tsCount}</td><td class="mono" style="color:var(--muted)">${thresh}</td><td class="mono" style="color:${retColor};font-weight:700">${r.portRet>=0?'+':''}${(r.portRet*100).toFixed(2)}%</td><td class="mono tt" style="font-weight:700">$${Math.round(r.nav).toLocaleString()}</td><td class="mono" style="color:var(--muted)">$${Math.round(r.spyNav).toLocaleString()}</td><td class="mono" style="color:${excColor};font-weight:700">${excess>=0?'+':''}${(excess*100).toFixed(2)}pp</td></tr>`;
+  MOM_CHART.nav=new Chart($('momNavChart').getContext('2d'),{type:'line',data:{labels:labels,datasets:[{label:'\u52d5\u80fd\u8f2a\u52d5 MOM',data:records.map(function(r){return r.nav;}),borderColor:'#00d4aa',borderWidth:2.5,pointRadius:0},{label:'SPY B&H',data:records.map(function(r){return r.spyNav;}),borderColor:'#3d4a66',borderWidth:1,pointRadius:0}].concat(abcdDatasets)},options:Object.assign({},opt,{plugins:{legend:{labels:{color:'#6b7a99',boxWidth:10,font:{size:11}}}},scales:Object.assign({},sc,{y:Object.assign({},sc.y,{type:'logarithmic'})})})});
+  var mddData=[]; var pk3=records[0].nav;
+  records.forEach(function(r){if(r.nav>pk3)pk3=r.nav;mddData.push((r.nav-pk3)/pk3*100);});
+  var mddSpy=[]; var pk4=records[0].spyNav;
+  records.forEach(function(r){if(r.spyNav>pk4)pk4=r.spyNav;mddSpy.push((r.spyNav-pk4)/r.spyNav*100);});
+  MOM_CHART.dd=new Chart($('momDdChart').getContext('2d'),{type:'line',data:{labels:labels,datasets:[{label:'MOM',data:mddData,borderColor:'#00d4aa',borderWidth:1,pointRadius:0,fill:true,backgroundColor:'rgba(0,212,170,0.08)'},{label:'SPY',data:mddSpy,borderColor:'#3d4a66',borderWidth:1,pointRadius:0}]},options:Object.assign({},opt,{plugins:{legend:{display:false}},scales:sc})});
+  $('momLogBody').innerHTML=records.slice().reverse().map(function(r,revIdx){
+    var idx2=records.length-1-revIdx;
+    var prevSpy=idx2>0?records[idx2-1].spyNav:initial;
+    var hChips=Object.entries(r.holdings).map(function(e){return '<span class="holding-chip '+(e[0]===MOM_CASH_TICKER?'cash':'')+'">'+e[0]+' <span style="opacity:.7">'+(e[1]*100).toFixed(0)+'%</span></span>';}).join('');
+    var retColor=r.portRet>=0?'var(--green)':'var(--red)';
+    var excess=r.portRet-(r.spyNav/prevSpy-1);
+    var excColor=excess>=0?'var(--green)':'var(--red)';
+    var tsCount=r.signal&&r.signal.eligible?r.signal.eligible.length:'--';
+    var thresh=r.cashRate!=null?((r.cashRate+(cfg.buffer||0))*100).toFixed(2)+'%':'--';
+    var ss=r.shieldScore!=null?r.shieldScore.toFixed(0):'--';
+    var ssColor=r.shieldScore>=60?'var(--green)':r.shieldScore>=40?'var(--yellow)':'var(--red)';
+    var isSPYOnly=Object.keys(r.holdings).length===1&&r.holdings['SPY']>=0.99;
+    var isBILOnly=r.holdings[MOM_CASH_TICKER]>=0.99;
+    var modeLabel=isSPYOnly?'<span style="color:var(--accent);font-size:10px">SPY</span>':isBILOnly?'<span style="color:var(--muted);font-size:10px">\u73fe\u91d1</span>':'<span style="color:var(--teal);font-size:10px">MOM</span>';
+    return '<tr class="log-row"><td class="mono" style="font-weight:700">'+r.month+'</td><td style="white-space:nowrap">'+hChips+'</td><td class="mono" style="color:'+ssColor+';font-weight:700">'+ss+'</td><td>'+modeLabel+'</td><td class="mono" style="text-align:center;color:'+(tsCount>0?'var(--teal)':'var(--red)')+'">'+tsCount+'</td><td class="mono" style="color:var(--muted)">'+thresh+'</td><td class="mono" style="color:'+retColor+';font-weight:700">'+(r.portRet>=0?'+':'')+(r.portRet*100).toFixed(2)+'%</td><td class="mono tt" style="font-weight:700">$'+Math.round(r.nav).toLocaleString()+'</td><td class="mono" style="color:var(--muted)">$'+Math.round(r.spyNav).toLocaleString()+'</td><td class="mono" style="color:'+excColor+';font-weight:700">'+(excess>=0?'+':'')+(excess*100).toFixed(2)+'pp</td></tr>';
   }).join('');
   if($('momTradeBody')){
-    $('momTradeBody').innerHTML=[...MOM_RESULT.trades||[]].reverse().map(t=>{
-      const rc=t.tickerRet>=0?'var(--green)':'var(--red)';
-      const cc=t.contribution>=0?'var(--green)':'var(--red)';
-      const note=t.isCash?'現金停泊':'';
-      return `<tr class="log-row"><td class="mono">${t.entryMonth}</td><td class="mono">${t.exitMonth}</td><td style="font-weight:700;color:${t.isCash?'var(--green)':'var(--teal)'}">${t.ticker}</td><td class="mono">${(t.weight*100).toFixed(1)}%</td><td class="mono">${t.entryPrice.toFixed(2)}</td><td class="mono">${t.exitPrice.toFixed(2)}</td><td class="mono" style="color:${rc};font-weight:700">${t.tickerRet>=0?'+':''}${(t.tickerRet*100).toFixed(2)}%</td><td class="mono" style="color:${cc};font-weight:700">${t.contribution>=0?'+':''}${(t.contribution*100).toFixed(2)}pp</td><td style="font-size:11px;color:var(--muted)">${note}</td></tr>`;
+    $('momTradeBody').innerHTML=(MOM_RESULT.trades||[]).slice().reverse().map(function(t){
+      var rc=t.tickerRet>=0?'var(--green)':'var(--red)';
+      var cc=t.contribution>=0?'var(--green)':'var(--red)';
+      return '<tr class="log-row"><td class="mono">'+t.entryMonth+'</td><td class="mono">'+t.exitMonth+'</td><td style="font-weight:700;color:'+(t.isCash?'var(--green)':'var(--teal)')+'">'+t.ticker+'</td><td class="mono">'+(t.weight*100).toFixed(1)+'%</td><td class="mono">'+t.entryPrice.toFixed(2)+'</td><td class="mono">'+t.exitPrice.toFixed(2)+'</td><td class="mono" style="color:'+rc+';font-weight:700">'+(t.tickerRet>=0?'+':'')+(t.tickerRet*100).toFixed(2)+'%</td><td class="mono" style="color:'+cc+';font-weight:700">'+(t.contribution>=0?'+':'')+(t.contribution*100).toFixed(2)+'pp</td><td style="font-size:11px;color:var(--muted)">'+(t.isCash?'\u73fe\u91d1\u505c\u6cca':'')+'</td></tr>';
     }).join('');
   }
 }
 
 function overlaymomOnShieldChart(){
   if(!BT_RESULT||!MOM_RESULT||!charts.n) return;
-  const {records,initial}=MOM_RESULT;
-  const shieldDates=BT_RESULT.cv.map(c=>c.d);
-  const momMap={};records.forEach(r=>{momMap[r.month]=r.nav;});
-  const momLine=shieldDates.map(d=>{
-    const m=d.slice(0,7); let best=null;
-    for(const [month,nav] of Object.entries(momMap)){if(month<=m) best=nav;}
+  var records=MOM_RESULT.records,initial=MOM_RESULT.initial;
+  var shieldDates=BT_RESULT.cv.map(function(c){return c.d;});
+  var momMap={};records.forEach(function(r){momMap[r.month]=r.nav;});
+  var momLine=shieldDates.map(function(d){
+    var m=d.slice(0,7); var best=null;
+    Object.entries(momMap).forEach(function(e){if(e[0]<=m) best=e[1];});
     return best?(best/initial)*BT_RESULT.cfgLast.cap:null;
   });
-  const existing=charts.n.data.datasets.findIndex(ds=>ds.label==='動能輪動');
+  var existing=charts.n.data.datasets.findIndex(function(ds){return ds.label==='\u52d5\u80fd\u8f2a\u52d5';});
   if(existing>=0) charts.n.data.datasets.splice(existing,1);
-  charts.n.data.datasets.push({label:'動能輪動',data:momLine,borderColor:'#00d4aa',borderWidth:2,pointRadius:0,borderDash:[4,3]});
+  charts.n.data.datasets.push({label:'\u52d5\u80fd\u8f2a\u52d5',data:momLine,borderColor:'#00d4aa',borderWidth:2,pointRadius:0,borderDash:[4,3]});
   charts.n.update();
-  const last=records[records.length-1];
-  const years=(new Date(last.month+'-01')-new Date(records[0].month+'-01'))/(365.25*86400000);
-  const totalRet=last.nav/initial-1;
-  const cagr=years>0?Math.pow(1+Math.max(totalRet,-0.999),1/years)-1:0;
-  let pk=records[0].nav,mdd=0;
-  records.forEach(r=>{if(r.nav>pk)pk=r.nav;const dd=(r.nav-pk)/pk;if(dd<mdd)mdd=dd;});
-  const monthRets=records.map(r=>r.portRet);
-  const avgR=monthRets.reduce((a,b)=>a+b,0)/monthRets.length;
-  const std=Math.sqrt(monthRets.reduce((a,b)=>a+(b-avgR)**2,0)/monthRets.length)*Math.sqrt(12);
-  const sharpe=std>0?(cagr-0.025)/std:0;
-  const oldCard=document.getElementById('momKpiCard'); if(oldCard) oldCard.remove();
-  const card=document.createElement('div'); card.id='momKpiCard'; card.className='metric-card';
-  card.style.borderTop='3px solid var(--teal)';
-  card.innerHTML=`<div class="m-title" style="color:var(--teal)">動能輪動 MOM <span style="font-size:9px;font-weight:400;color:var(--dim)">月頻回測</span></div>
-    <div class="m-row"><span>區間報酬</span><span class="m-val ${totalRet>=0?'tg':'tr'}">${totalRet>=0?'+':''}${(totalRet*100).toFixed(1)}%</span></div>
-    <div class="m-row"><span>CAGR</span><span class="m-val tt">${(cagr*100).toFixed(2)}%</span></div>
-    <div class="m-row"><span>MDD</span><span class="m-val tr">${(mdd*100).toFixed(2)}%</span></div>
-    <div class="m-row"><span>Sharpe</span><span class="m-val tg">${sharpe.toFixed(2)}</span></div>`;
-  $('metricsGrid').appendChild(card);
 }
 
-// ════════════════════════════════════════
-// 盾牌回測引擎
-// ════════════════════════════════════════
+// ════ 盾牌回測引擎 ════
 function bdg(m){
-  const map={PLUS:['var(--blue-dim)','var(--blue)','加碼'],NORMAL:['var(--surface2)','var(--white)','常態'],CLEAR:['var(--red-dim)','var(--red)','清倉'],STRIKE:['var(--yellow-dim)','var(--yellow)','短打']};
-  const[bg,c,label]=map[m]||['var(--surface2)','var(--muted)','--'];
-  return `<span style="background:${bg};color:${c};border:1px solid ${c};padding:2px 8px;border-radius:3px;font-size:12px;font-family:monospace;">${label}</span>`;
+  var map={PLUS:['var(--blue-dim)','var(--blue)','\u52a0\u78bc'],NORMAL:['var(--surface2)','var(--white)','\u5e38\u614b'],CLEAR:['var(--red-dim)','var(--red)','\u6e05\u5009'],STRIKE:['var(--yellow-dim)','var(--yellow)','\u77ed\u6253']};
+  var entry=map[m]||['var(--surface2)','var(--muted)','--'];
+  return '<span style="background:'+entry[0]+';color:'+entry[1]+';border:1px solid '+entry[1]+';padding:2px 8px;border-radius:3px;font-size:12px;font-family:monospace;">'+entry[2]+'</span>';
 }
 
 function calcP(cv,k){
   if(!cv.length) return{m:'0',c:'0',s:'0',t:'0'};
-  let pk=0,mdd=0,rets=[];
-  for(let i=1;i<cv.length;i++){
-    const v=cv[i][k];if(v>pk)pk=v;
-    const dd=(v-pk)/pk;if(dd<mdd)mdd=dd;
+  var pk=0,mdd=0,rets=[];
+  for(var i=1;i<cv.length;i++){
+    var v=cv[i][k];if(v>pk)pk=v;
+    var dd=(v-pk)/pk;if(dd<mdd)mdd=dd;
     rets.push((v-cv[i-1][k])/cv[i-1][k]);
   }
-  // ★ 用實際日期差計算年數，避免 cv.length/252 在資料有缺口時算錯
-  const d0=new Date(cv[0].d+'T00:00:00');
-  const d1=new Date(cv[cv.length-1].d+'T00:00:00');
-  const yr=Math.max(0.1,(d1-d0)/(365.25*86400000));
-  const tr=cv[cv.length-1][k]/cv[0][k]-1;
-  const cagr=Math.pow(1+Math.max(tr,-0.999),1/yr)-1;
-  const ar=rets.reduce((a,b)=>a+b,0)/(rets.length||1);
-  const sd=Math.sqrt(rets.reduce((a,b)=>a+(b-ar)**2,0)/(rets.length||1))*Math.sqrt(252);
+  var d0=new Date(cv[0].d+'T00:00:00');
+  var d1=new Date(cv[cv.length-1].d+'T00:00:00');
+  var yr=Math.max(0.1,(d1-d0)/(365.25*86400000));
+  var tr=cv[cv.length-1][k]/cv[0][k]-1;
+  var cagr=Math.pow(1+Math.max(tr,-0.999),1/yr)-1;
+  var ar=rets.reduce(function(a,b){return a+b;},0)/(rets.length||1);
+  var sd=Math.sqrt(rets.reduce(function(a,b){return a+(b-ar)*(b-ar);},0)/(rets.length||1))*Math.sqrt(252);
   return{m:(mdd*100).toFixed(2),c:(cagr*100).toFixed(2),s:sd===0?'0':(ar*252/sd).toFixed(2),t:(tr*100).toFixed(1),yr:yr.toFixed(1)};
 }
 
 function evalStrike(cfg,vix,vixPeakRecent,rsi,zb,spewRelPerf){
-  const s=cfg.strk;let hits=0,enabled=0;
+  var s=cfg.strk;var hits=0,enabled=0;
   if(s.useRsi){enabled++;if(rsi<s.rsi)hits++;}
   if(s.useVix){enabled++;
     if(s.vixPullback){if(vixPeakRecent>=s.vix&&vix<=vixPeakRecent-s.vixPbAmt)hits++;}
@@ -1711,370 +1663,344 @@ function applyRegime(result,reg,cfg){
 }
 
 function stepEngine(s,prevM,newM,newMult,ret,spNow,costRate){
-  const prevBase=(prevM==='CLEAR')?0:(prevM==='STRIKE')?costRate.strike:1.0;
-  const newBase=(newM==='CLEAR')?0:(newM==='STRIKE')?costRate.strike:1.0;
+  var prevBase=(prevM==='CLEAR')?0:(prevM==='STRIKE')?costRate.strike:1.0;
+  var newBase=(newM==='CLEAR')?0:(newM==='STRIKE')?costRate.strike:1.0;
   s.eq*=(1+prevBase*ret);
   if(prevBase!==newBase) s.eq*=(1-costRate.cost);
   if(newM==='PLUS'&&prevM!=='PLUS'){s.plusN=newMult*s.eq;s.plusSP=spNow;s.eq-=s.plusN*costRate.cost;}
-  let pnl=null;
+  var pnl=null;
   if(newM!=='PLUS'&&prevM==='PLUS'&&s.plusN>0){
-    const plusVal=s.plusN*(spNow/s.plusSP);pnl=plusVal-s.plusN;s.eq+=pnl;s.eq-=plusVal*costRate.cost;s.plusLastPnL=pnl;s.plusN=0;s.plusSP=0;
+    var plusVal=s.plusN*(spNow/s.plusSP);pnl=plusVal-s.plusN;s.eq+=pnl;s.eq-=plusVal*costRate.cost;s.plusLastPnL=pnl;s.plusN=0;s.plusSP=0;
   }
   return pnl;
 }
 
+// ════ BUG FIX #4: clearDays 先存原始天數，toRows 在 freqScale 計算後再套用 ════
 function runBacktest(){
-  if(DB.length<30){alert('資料不足，請先完成步驟 1-2。');return;}
-  const start=$('cpStart').value,end=$('cpEnd').value;
-  const slice=DB.filter(r=>r.d>=start&&r.d<=end);
-  if(slice.length<20){alert('區間資料不足，請調整日期。');return;}
-  const cfg={
+  if(DB.length<30){alert('\u8cc7\u6599\u4e0d\u8db3\uff0c\u8acb\u5148\u5b8c\u6210\u6b65\u9a5f 1-2\u3002');return;}
+  var start=$('cpStart').value,end=$('cpEnd').value;
+  var slice=DB.filter(function(r){return r.d>=start&&r.d<=end;});
+  if(slice.length<20){alert('\u5340\u9593\u8cc7\u6599\u4e0d\u8db3\uff0c\u8acb\u8abf\u6574\u65e5\u671f\u3002');return;}
+  // ★ FIX #4: clearDays 先存原始天數（不呼叫 toRows，此時 freqScale 還未計算）
+  var cfg={
     cap:100000,cost:0.0005,
-    A:{s150:gv('cpA150'),s100:gv('cpA100'),clearDays:toRows(gv('cpADays')),dlt:gv('cpADelta'),w:120},
-    B:{s150:gv('cpB150'),s100:gv('cpB100'),clearDays:toRows(gv('cpBDays')),z:gv('cpBZ'),w:500},
+    A:{s150:gv('cpA150'),s100:gv('cpA100'),clearDays:gv('cpADays'),dlt:gv('cpADelta'),w:120},
+    B:{s150:gv('cpB150'),s100:gv('cpB100'),clearDays:gv('cpBDays'),z:gv('cpBZ'),w:500},
     strk:{n:Math.max(1,Math.round(gv('cpStrkN'))||2),useRsi:gc('useStrkRsi'),rsi:gv('cpRsi'),useVix:gc('useStrkVix'),vix:gv('cpVix'),vixPullback:gc('vixPullback'),vixPbAmt:gv('cpVixPB'),useBias:gc('useStrkBias'),bias:gv('cpBias'),useEWR:gc('useStrkEWR'),ewRatio:gv('cpEWRatio')},
     pos:{plusMult:gv('cpPosPlus'),base:gv('cpPosBase'),strike:gv('cpPosStrk')},
-    useRegime:gc('useRegime'),useYC:gc('useYC'),useV8:gc('useV8'),
-    useT1:gc('useT1'),
+    useRegime:gc('useRegime'),useYC:gc('useYC'),useV8:gc('useV8'),useT1:gc('useT1'),
     useCB:gc('useCB'),cbT1:gv('cbThresh1')/100,cbL1:gv('cbTarget1')/100,
     cbT2:gv('cbThresh2')/100,cbL2:gv('cbTarget2')/100,
-    useTS:gc('useTS'),tsDd:gv('tsDd')/100,
-    useRelCape:gc('useRelCape'),
+    useTS:gc('useTS'),tsDd:gv('tsDd')/100,useRelCape:gc('useRelCape'),
     regRsiOn:gv('regRsiOn'),regVixOn:gv('regVixOn'),regRsiOff:gv('regRsiOff'),regVixOff:gv('regVixOff'),
     regAllowPlus:gc('regAllowPlus'),regAllowPlusMid:gc('regAllowPlusMid'),ycLo:gv('ycLo'),ycHi:gv('ycHi')
   };
-  $('loadingOverlay').classList.remove('hidden'); $('loadingText').textContent='回測運算中...';
-  setTimeout(()=>{
+  $('loadingOverlay').classList.remove('hidden'); $('loadingText').textContent='\u56de\u6e2c\u904b\u7b97\u4e2d...';
+  setTimeout(function(){
     try{
-      // 相對CAPE：預先計算每日ERP，供滾動5年均值使用
-      const ALL_ERP=slice.map(r=>(100/(r.cape||30))-(r.tips||1.5));
-      const DATES=slice.map(r=>r.d),SP=slice.map(r=>r.sp),EW=slice.map(r=>r.ew);
+      var ALL_ERP=slice.map(function(r){return (100/(r.cape||30))-(r.tips||1.5);});
+      var DATES=slice.map(function(r){return r.d;});
+      var SP=slice.map(function(r){return r.sp;});
+      var EW=slice.map(function(r){return r.ew;});
 
-      // ★ 資料頻率自動偵測
-      // 計算中位數相鄰天數差：日資料≈1, 週資料≈5, 月資料≈21
-      const dateDiffs=[];
-      for(let k=1;k<Math.min(DATES.length,60);k++){
-        const d0=new Date(DATES[k-1]+'T12:00:00'), d1=new Date(DATES[k]+'T12:00:00');
+      // 資料頻率自動偵測
+      var dateDiffs=[];
+      for(var k=1;k<Math.min(DATES.length,60);k++){
+        var d0=new Date(DATES[k-1]+'T12:00:00'), d1=new Date(DATES[k]+'T12:00:00');
         dateDiffs.push(Math.round((d1-d0)/86400000));
       }
-      dateDiffs.sort((a,b)=>a-b);
-      const medianDiff=dateDiffs[Math.floor(dateDiffs.length/2)]||1;
-      // freqScale：日=1, 月≈21
-      // 用來縮放熔斷門檻和停損門檻：月資料時門檻放大
-      const freqScale=Math.max(1,Math.min(medianDiff,25));
-      const isMonthly=freqScale>=15;
-      // 動態閾值（月資料下：熔斷門檻放大4倍、停損門檻放大但上限-8%）
-      const cbT1scaled=cfg.cbT1*(isMonthly?4:1);
-      const cbT2scaled=cfg.cbT2*(isMonthly?4:1);
-      const tsDdScaled=isMonthly?Math.max(cfg.tsDd*2,-0.08):cfg.tsDd;
-      // T+1在月資料下改為「下一筆執行」，語義不變，不需額外調整
-      // ★ 頻率自適應視窗（所有硬編碼筆數統一由此換算）
-      // 日頻(freqScale=1): 原始值；月頻(freqScale=21): 大幅縮小
-      const W_MOM   = isMonthly?3:60;       // 動量回看：3個月 vs 60天
-      const W_EW    = isMonthly?3:20;       // EW/SP Z-Score 窗口
-      const W_RSI   = isMonthly?3:70;       // RSI 暖機筆數
-      const W_ZSCORE= isMonthly?12:252;     // Z-Score 滾動窗口：1年
-      const W_ZMIN  = isMonthly?3:20;       // Z-Score 最小有效筆數
-      const W_RCAPE = isMonthly?60:1260;    // 相對CAPE 5年窗口
-      // clearDays：UI輸入是「天數」，月頻需換算成「筆數」
-      // 日頻2天=2筆；月頻2天≈1筆（不足1個月就取1）
-      const toRows=(days)=>Math.max(1,Math.round(days/freqScale));
-      const HY=slice.map(r=>r.hy),TIPS=slice.map(r=>r.tips);
-      const VIX=slice.map(r=>r.vix),CAPE=slice.map(r=>r.cape);
-      const Y10=slice.map(r=>r.y10),Y2=slice.map(r=>r.y2);
-      const N=DATES.length;
-      const costRate={cost:cfg.cost,strike:cfg.pos.strike};
-      const mkSt=(eq)=>({eq,m:'NORMAL',p:0,db:0,ps:100,s:100,f1:50,f5:50,yc:50,plusN:0,plusSP:0,plusLastPnL:null,
-        pendingM:'NORMAL',pendingP:0,  // T+1：待執行信號
-        entryEq:eq,tsActive:false      // 浮動停損：建倉基準
-      });
-      const st={A:mkSt(cfg.cap),B:mkSt(cfg.cap),C:{eq:cfg.cap,m:'NORMAL',p:cfg.pos.base},D:{eq:cfg.cap,m:'NORMAL',p:cfg.pos.base,plusN:0,plusSP:0,plusLastPnL:null},BH:{eq:cfg.cap},regime:'N'};
-      const cv=[],yrD={},logs=[];
-      const mddArr={A:[],B:[],C:[],D:[],BH:[]};
-      const pk={A:cfg.cap,B:cfg.cap,C:cfg.cap,D:cfg.cap,BH:cfg.cap};
-      const sp0=SP[0];
-      const totalEq=(s,spNow)=>s.eq+(s.plusN>0&&s.plusSP>0?s.plusN*(spNow/s.plusSP):0);
-      const hyMomArr=[],breadthMomArr=[]; // 滾動動量序列，供 Z-Score 懲罰計算
-      for(let i=1;i<N;i++){
-        const ret=(SP[i]-SP[i-1])/SP[i-1];
-        const hN=HY[i]*100;
-        // F1：支援相對CAPE模式（消除長期高估偏差）
-        let f1;
+      dateDiffs.sort(function(a,b){return a-b;});
+      var medianDiff=dateDiffs[Math.floor(dateDiffs.length/2)]||1;
+      var freqScale=Math.max(1,Math.min(medianDiff,25));
+      var isMonthly=freqScale>=15;
+      var cbT1scaled=cfg.cbT1*(isMonthly?4:1);
+      var cbT2scaled=cfg.cbT2*(isMonthly?4:1);
+      var tsDdScaled=isMonthly?Math.max(cfg.tsDd*2,-0.08):cfg.tsDd;
+
+      // ★ FIX #4: toRows 在 freqScale 確定後定義並立刻套用
+      function toRows(days){return Math.max(1,Math.round(days/freqScale));}
+      cfg.A.clearDays=toRows(cfg.A.clearDays);
+      cfg.B.clearDays=toRows(cfg.B.clearDays);
+
+      var W_MOM   = isMonthly?3:60;
+      var W_EW    = isMonthly?3:20;
+      var W_RSI   = isMonthly?3:70;
+      var W_ZSCORE= isMonthly?12:252;
+      var W_ZMIN  = isMonthly?3:20;
+      var W_RCAPE = isMonthly?60:1260;
+      var HY=slice.map(function(r){return r.hy;}),TIPS=slice.map(function(r){return r.tips;});
+      var VIX=slice.map(function(r){return r.vix;}),CAPE=slice.map(function(r){return r.cape;});
+      var Y10=slice.map(function(r){return r.y10;}),Y2=slice.map(function(r){return r.y2;});
+      var N=DATES.length;
+      var costRate={cost:cfg.cost,strike:cfg.pos.strike};
+      function mkSt(eq){return {eq:eq,m:'NORMAL',p:0,db:0,ps:100,s:100,f1:50,f5:50,yc:50,plusN:0,plusSP:0,plusLastPnL:null,pendingM:'NORMAL',pendingP:0,entryEq:eq,tsActive:false};}
+      var st={A:mkSt(cfg.cap),B:mkSt(cfg.cap),C:{eq:cfg.cap,m:'NORMAL',p:cfg.pos.base},D:{eq:cfg.cap,m:'NORMAL',p:cfg.pos.base,plusN:0,plusSP:0,plusLastPnL:null},BH:{eq:cfg.cap},regime:'N'};
+      var cv=[],yrD={},logs=[];
+      var mddArr={A:[],B:[],C:[],D:[],BH:[]};
+      var pk={A:cfg.cap,B:cfg.cap,C:cfg.cap,D:cfg.cap,BH:cfg.cap};
+      var sp0=SP[0];
+      function totalEq(s,spNow){return s.eq+(s.plusN>0&&s.plusSP>0?s.plusN*(spNow/s.plusSP):0);}
+      var hyMomArr=[],breadthMomArr=[];
+      for(var i=1;i<N;i++){
+        var ret=(SP[i]-SP[i-1])/SP[i-1];
+        var hN=HY[i]*100;
+        var f1;
         if(cfg.useRelCape && i>=W_RCAPE){
-          // 相對CAPE：5年窗口（日頻=1260筆，月頻=60筆）
-          let erpSum=0; const erpN=Math.min(i,W_RCAPE);
-          for(let j=i-erpN;j<i;j++) erpSum+=ALL_ERP[j];
-          const erpMean=erpSum/erpN;
-          const relErp=ALL_ERP[i]-erpMean; // 偏離均值：正=偏便宜, 負=偏貴
-          f1=lerp(relErp,-2,2,10,90);      // ±2%區間，50=與5年均值相同
+          var erpSum=0; var erpN2=Math.min(i,W_RCAPE);
+          for(var jj=i-erpN2;jj<i;jj++) erpSum+=ALL_ERP[jj];
+          var erpMean=erpSum/erpN2;
+          var relErp=ALL_ERP[i]-erpMean;
+          f1=lerp(relErp,-2,2,10,90);
         } else {
           f1=lerp(ALL_ERP[i],0,4,10,90);
         }
-        // ★★★ 0325 F5刻度校準 + Z-Score動量懲罰 ★★★
-        // F5=50 @ HY=350bp, F1=50 @ ERP=2.0%, YC=50 @ 斜率=(ycLo+ycHi)/2
-        const f5b=lerp(hN,250,600,66,10);
-        const ycSlope=Y10[i]-Y2[i];
-        let shieldBase,ycScore=50;
+        var f5b=lerp(hN,250,600,66,10);
+        var ycSlope=Y10[i]-Y2[i];
+        var shieldBase,ycScore=50;
         if(cfg.useYC){ycScore=lerp(ycSlope,cfg.ycLo,cfg.ycHi,10,90);shieldBase=f1*0.5+f5b*0.3+ycScore*0.2;}
         else shieldBase=f1*0.5+f5b*0.5;
-
-        // Z-Score 動量懲罰：以滾動歷史分布為基準，>1.5σ才扣分（上限15/10分）
-        const i60=Math.max(0,i-W_MOM);
+        var i60=Math.max(0,i-W_MOM);
         hyMomArr.push(hN-HY[i60]*100);
-        const ewI=EW[i]/SP[i],ewI60=EW[i60]/SP[i60];
+        var ewI=EW[i]/SP[i],ewI60=EW[i60]/SP[i60];
         breadthMomArr.push(ewI60>0?ewI/ewI60-1:0);
-        const hyPenalty=zScorePenalty(hyMomArr,hyMomArr[hyMomArr.length-1],1,1.5,15,W_ZSCORE,W_ZMIN);
-        const brdPenalty=zScorePenalty(breadthMomArr,breadthMomArr[breadthMomArr.length-1],-1,1.5,10,W_ZSCORE,W_ZMIN);
+        var hyPenalty=zScorePenalty(hyMomArr,hyMomArr[hyMomArr.length-1],1,1.5,15,W_ZSCORE,W_ZMIN);
+        var brdPenalty=zScorePenalty(breadthMomArr,breadthMomArr[breadthMomArr.length-1],-1,1.5,10,W_ZSCORE,W_ZMIN);
         shieldBase=Math.max(0,Math.min(100,shieldBase-hyPenalty-brdPenalty));
-        let rsi=50;
+        var rsi=50;
         if(i>=W_RSI){
-          // 月頻：直接取最近N筆為RSI週期；日頻：用週邊界抓週線
-          let wPrices;
+          var wPrices;
           if(isMonthly){
-            wPrices=SP.slice(Math.max(0,i-14),i+1); // 取最近15筆月資料
+            wPrices=SP.slice(Math.max(0,i-14),i+1);
           } else {
             wPrices=[SP[i]];
-            for(let j=i-1;j>=0;j--){if(new Date(DATES[j]).getDay()>=new Date(DATES[j+1]).getDay()){wPrices.push(SP[j]);if(wPrices.length===15)break;}}
+            for(var jk=i-1;jk>=0;jk--){if(new Date(DATES[jk]).getDay()>=new Date(DATES[jk+1]).getDay()){wPrices.push(SP[jk]);if(wPrices.length===15)break;}}
           }
           if(wPrices.length>=5){
             wPrices=wPrices.slice(0,15).reverse();
-            let g=0,l=0;
-            for(let k=1;k<wPrices.length;k++){const d=wPrices[k]-wPrices[k-1];d>=0?g+=d:l-=d;}
+            var g=0,l=0;
+            for(var kk=1;kk<wPrices.length;kk++){var ddv=wPrices[kk]-wPrices[kk-1];ddv>=0?g+=ddv:l-=ddv;}
             rsi=100-(100/(1+(g/(l||1))));
           }
         }
-        let zb=0;
+        var zb=0;
         if(i>=W_EW){
-          const sl=[];for(let j=i-W_EW+1;j<=i;j++)sl.push(EW[j]/SP[j]);
-          const mzb=sl.reduce((a,b)=>a+b)/sl.length;
-          const sdzb=Math.sqrt(sl.reduce((a,b)=>a+(b-mzb)**2)/sl.length)||1;
+          var sl=[];for(var jl=i-W_EW+1;jl<=i;jl++)sl.push(EW[jl]/SP[jl]);
+          var mzb=sl.reduce(function(a,b){return a+b;})/sl.length;
+          var sdzb=Math.sqrt(sl.reduce(function(a,b){return a+(b-mzb)*(b-mzb);},0)/sl.length)||1;
           zb=(EW[i]/SP[i]-mzb)/sdzb;
         }
-        const vixPeak=Math.max(...VIX.slice(Math.max(0,i-20),i+1));
-        let spewRelPerf=0;
-        const lb63=Math.max(0,i-63);
+        var vixPeak=Math.max.apply(null,VIX.slice(Math.max(0,i-20),i+1));
+        var spewRelPerf=0;
+        var lb63=Math.max(0,i-63);
         if(i>=63&&EW[lb63]>0&&SP[lb63]>0)spewRelPerf=(SP[i]/SP[lb63])/(EW[i]/EW[lb63])-1;
-        const reg=getRegime(rsi,ycSlope,VIX[i],cfg);
+        var reg=getRegime(rsi,ycSlope,VIX[i],cfg);
         st.regime=reg;
-        const strkHit=evalStrike(cfg,VIX[i],vixPeak,rsi,zb,spewRelPerf);
-        const pA=st.A.m,pB=st.B.m;
-
-        // ── 熔斷：跌幅觸發（門檻依資料頻率自動縮放）──
-        // 日資料：-3%/-5%；月資料：-12%/-20%（×4）
-        let cbOverride=null;
+        var strkHit=evalStrike(cfg,VIX[i],vixPeak,rsi,zb,spewRelPerf);
+        var pA=st.A.m,pB=st.B.m;
+        var cbOverride=null;
         if(cfg.useCB){
           if(ret<=cbT2scaled) cbOverride={m:'CLEAR',p:0,tag:'CB2'};
           else if(ret<=cbT1scaled) cbOverride={m:'NORMAL',p:cfg.cbL1,tag:'CB1'};
         }
-        // A（delta 條件：f5b<80 保留下界判斷）
-        let mA=hN;for(let j=Math.max(0,i-cfg.A.w);j<i;j++)if(HY[j]*100<mA)mA=HY[j]*100;
-        let sA=Math.round(shieldBase-(((hN-mA)>=cfg.A.dlt&&f5b<55)?10:0));
+        // A
+        var mA=hN;for(var jA=Math.max(0,i-cfg.A.w);jA<i;jA++)if(HY[jA]*100<mA)mA=HY[jA]*100;
+        var sA=Math.round(shieldBase-(((hN-mA)>=cfg.A.dlt&&f5b<55)?10:0));
         if(isNaN(sA))sA=st.A.ps;
         if(sA<cfg.A.s100)st.A.db++;else st.A.db=0;
-        let nA=getMode(sA,st.A.db,cfg.A,strkHit,cfg.pos);nA=applyRegime(nA,reg,cfg);
-        // T+1：今日執行昨日pending；今日信號存入pending
-        // T+1：今日執行昨日pending；T+1=OFF時直接用今日信號
-        const execA=cfg.useT1?{m:st.A.pendingM,p:st.A.pendingP}:{m:nA.m,p:nA.p};
-        // BUG3修正：T+1=OFF時，熔斷直接覆蓋今日執行（不只寫pending）
+        var nA=getMode(sA,st.A.db,cfg.A,strkHit,cfg.pos);nA=applyRegime(nA,reg,cfg);
+        var execA=cfg.useT1?{m:st.A.pendingM,p:st.A.pendingP}:{m:nA.m,p:nA.p};
         if(cbOverride && !cfg.useT1){execA.m=cbOverride.m;execA.p=cbOverride.p;}
-        // 浮動停損（追蹤峰值，非建倉點）
         if(cfg.useTS && execA.m!=='CLEAR'){
-          // BUG1修正：entryEq持續更新為持倉期間峰值
-          if(pA==='CLEAR') st.A.entryEq=st.A.eq;          // 建倉時重置
-          else st.A.entryEq=Math.max(st.A.entryEq,st.A.eq); // 持倉期間追高
-          const drawFromPeak=st.A.entryEq>0?(st.A.eq-st.A.entryEq)/st.A.entryEq:0;
-          if(drawFromPeak<tsDdScaled){
-            execA.m='CLEAR';execA.p=0;st.A.tsActive=true;
-            // BUG2修正：停損觸發時鎖定pending，避免明日T+1自動重入
-            nA.m='CLEAR';nA.p=0;
-          } else st.A.tsActive=false;
+          if(pA==='CLEAR') st.A.entryEq=st.A.eq;
+          else st.A.entryEq=Math.max(st.A.entryEq,st.A.eq);
+          var drawFromPeakA=st.A.entryEq>0?(st.A.eq-st.A.entryEq)/st.A.entryEq:0;
+          if(drawFromPeakA<tsDdScaled){execA.m='CLEAR';execA.p=0;st.A.tsActive=true;nA.m='CLEAR';nA.p=0;}
+          else st.A.tsActive=false;
         }
-        // 更新下一日pending（熔斷優先於信號）
         if(cbOverride){st.A.pendingM=cbOverride.m;st.A.pendingP=cbOverride.p;}
         else{st.A.pendingM=nA.m;st.A.pendingP=nA.p;}
-        const pnlA=stepEngine(st.A,pA,execA.m,cfg.pos.plusMult,ret,SP[i],costRate);
-        const logModeA=execA.m;
+        var pnlA=stepEngine(st.A,pA,execA.m,cfg.pos.plusMult,ret,SP[i],costRate);
+        var logModeA=execA.m;
         if(logModeA!==pA)logs.push({d:DATES[i],mtd:'A',fm:pA,to:logModeA,sp:SP[i].toFixed(1),s:sA,ps:st.A.ps,db:st.A.db,pnl:pnlA});
         st.A.p=execA.p;st.A.m=logModeA;st.A.ps=sA;st.A.s=sA;st.A.f1=Math.round(f1);st.A.f5=Math.round(f5b);st.A.yc=Math.round(ycScore);
         // B
-        const slB=HY.slice(Math.max(0,i-cfg.B.w),i);
-        const mB=slB.reduce((a,b)=>a+b,0)/slB.length;
-        const sdB=Math.sqrt(slB.reduce((a,b)=>a+(b-mB)**2,0)/slB.length)||1;
-        const zHY=(HY[i]-mB)/sdB;
-        let sB=Math.round(shieldBase-(zHY>cfg.B.z?10:0));
+        var slB=HY.slice(Math.max(0,i-cfg.B.w),i);
+        var mB=slB.reduce(function(a,b){return a+b;},0)/slB.length;
+        var sdB=Math.sqrt(slB.reduce(function(a,b){return a+(b-mB)*(b-mB);},0)/slB.length)||1;
+        var zHY=(HY[i]-mB)/sdB;
+        var sB=Math.round(shieldBase-(zHY>cfg.B.z?10:0));
         if(isNaN(sB))sB=st.B.ps;
         if(sB<cfg.B.s100)st.B.db++;else st.B.db=0;
-        let nB=getMode(sB,st.B.db,cfg.B,strkHit,cfg.pos);nB=applyRegime(nB,reg,cfg);
-        const execB=cfg.useT1?{m:st.B.pendingM,p:st.B.pendingP}:{m:nB.m,p:nB.p};
+        var nB=getMode(sB,st.B.db,cfg.B,strkHit,cfg.pos);nB=applyRegime(nB,reg,cfg);
+        var execB=cfg.useT1?{m:st.B.pendingM,p:st.B.pendingP}:{m:nB.m,p:nB.p};
         if(cbOverride && !cfg.useT1){execB.m=cbOverride.m;execB.p=cbOverride.p;}
         if(cfg.useTS && execB.m!=='CLEAR'){
           if(pB==='CLEAR') st.B.entryEq=st.B.eq;
           else st.B.entryEq=Math.max(st.B.entryEq,st.B.eq);
-          const drawFromPeakB=st.B.entryEq>0?(st.B.eq-st.B.entryEq)/st.B.entryEq:0;
+          var drawFromPeakB=st.B.entryEq>0?(st.B.eq-st.B.entryEq)/st.B.entryEq:0;
           if(drawFromPeakB<tsDdScaled){execB.m='CLEAR';execB.p=0;nB.m='CLEAR';nB.p=0;}
         }
         if(cbOverride){st.B.pendingM=cbOverride.m;st.B.pendingP=cbOverride.p;}
         else{st.B.pendingM=nB.m;st.B.pendingP=nB.p;}
-        const pnlB=stepEngine(st.B,pB,execB.m,cfg.pos.plusMult,ret,SP[i],costRate);
-        const logModeB=execB.m;
+        var pnlB=stepEngine(st.B,pB,execB.m,cfg.pos.plusMult,ret,SP[i],costRate);
+        var logModeB=execB.m;
         if(logModeB!==pB)logs.push({d:DATES[i],mtd:'B',fm:pB,to:logModeB,sp:SP[i].toFixed(1),s:sB,ps:st.B.ps,db:st.B.db,pnl:pnlB});
         st.B.p=execB.p;st.B.m=logModeB;st.B.ps=sB;st.B.s=sB;st.B.f1=Math.round(f1);st.B.f5=Math.round(f5b);st.B.yc=Math.round(ycScore);
         // C
-        const bA=(st.A.m==='NORMAL'||st.A.m==='PLUS'),bpA=(pA==='NORMAL'||pA==='PLUS');
-        const bB=(st.B.m==='NORMAL'||st.B.m==='PLUS'),bpB=(pB==='NORMAL'||pB==='PLUS');
-        let nMC=st.C.m;
-        if((!bA&&bpA)||(!bB&&bpB))nMC='CLEAR';
-        else if((bA&&!bpA)||(bB&&!bpB))nMC='NORMAL';
+        var bA2=(st.A.m==='NORMAL'||st.A.m==='PLUS'),bpA=(pA==='NORMAL'||pA==='PLUS');
+        var bB2=(st.B.m==='NORMAL'||st.B.m==='PLUS'),bpB=(pB==='NORMAL'||pB==='PLUS');
+        var nMC=st.C.m;
+        if((!bA2&&bpA)||(!bB2&&bpB))nMC='CLEAR';
+        else if((bA2&&!bpA)||(bB2&&!bpB))nMC='NORMAL';
         if(nMC!==st.C.m)logs.push({d:DATES[i],mtd:'C',fm:st.C.m,to:nMC,sp:SP[i].toFixed(1),s:'--',ps:'--',db:'--',pnl:null});
-        const nPC=nMC==='NORMAL'?cfg.pos.base:0;
-        const prevPC=st.C.m==='CLEAR'?0:cfg.pos.base;
+        var nPC=nMC==='NORMAL'?cfg.pos.base:0;
+        var prevPC=st.C.m==='CLEAR'?0:cfg.pos.base;
         st.C.eq*=(1+prevPC*ret);if(prevPC!==nPC)st.C.eq*=(1-cfg.cost);st.C.p=nPC;st.C.m=nMC;
         // D
-        const cA=st.A.m!==pA,cB=st.B.m!==pB;
-        let nMD=st.D.m;
-        if(cA&&cB){const rank={'CLEAR':0,'STRIKE':1,'NORMAL':2,'PLUS':3};nMD=rank[st.A.m]<rank[st.B.m]?st.A.m:st.B.m;}
-        else if(cA)nMD=st.A.m;else if(cB)nMD=st.B.m;
-        const prevMD=st.D.m;
-        const execD=cfg.useT1?st.D.pendingM:nMD;
-        // T+1=OFF時熔斷直接覆蓋今日
-        const execDfinal=cbOverride&&!cfg.useT1?cbOverride.m:execD;
+        var cA2=st.A.m!==pA,cB2=st.B.m!==pB;
+        var nMD=st.D.m;
+        if(cA2&&cB2){var rank2={'CLEAR':0,'STRIKE':1,'NORMAL':2,'PLUS':3};nMD=rank2[st.A.m]<rank2[st.B.m]?st.A.m:st.B.m;}
+        else if(cA2)nMD=st.A.m;else if(cB2)nMD=st.B.m;
+        var prevMD=st.D.m;
+        var execD=cfg.useT1?st.D.pendingM:nMD;
+        var execDfinal=cbOverride&&!cfg.useT1?cbOverride.m:execD;
         if(cfg.useTS && execDfinal!=='CLEAR'){
           if(prevMD==='CLEAR') st.D.entryEq=st.D.eq;
           else st.D.entryEq=Math.max(st.D.entryEq,st.D.eq);
-          const drawFromPeakD=st.D.entryEq>0?(st.D.eq-st.D.entryEq)/st.D.entryEq:0;
-          if(drawFromPeakD<tsDdScaled){nMD='CLEAR';} // 停損鎖定信號
+          var drawFromPeakD=st.D.entryEq>0?(st.D.eq-st.D.entryEq)/st.D.entryEq:0;
+          if(drawFromPeakD<tsDdScaled){nMD='CLEAR';}
         }
         if(cbOverride) st.D.pendingM=cbOverride.m; else st.D.pendingM=nMD;
-        const pnlD=stepEngine(st.D,prevMD,execDfinal,cfg.pos.plusMult,ret,SP[i],costRate);
-        const logModeD=execDfinal;
-        if(logModeD!==prevMD)logs.push({d:DATES[i],mtd:'D',fm:prevMD,to:logModeD,sp:SP[i].toFixed(1),s:'--',ps:'--',db:'--',pnl:pnlD});
-        st.D.m=logModeD;
+        var pnlD=stepEngine(st.D,prevMD,execDfinal,cfg.pos.plusMult,ret,SP[i],costRate);
+        st.D.m=execDfinal;
         st.BH.eq=cfg.cap*(SP[i]/sp0);
-        const eqA=totalEq(st.A,SP[i]),eqB=totalEq(st.B,SP[i]),eqD=totalEq(st.D,SP[i]);
-        cv.push({d:DATES[i],A:eqA,B:eqB,C:st.C.eq,D:eqD,BH:st.BH.eq});
-        const eqs={A:eqA,B:eqB,C:st.C.eq,D:eqD,BH:st.BH.eq};
-        ['A','B','C','D','BH'].forEach(k=>{
-          if(eqs[k]>pk[k])pk[k]=eqs[k];mddArr[k].push((eqs[k]-pk[k])/pk[k]*100);
-        });
-        const yr=DATES[i].slice(0,4);
-        if(!yrD[yr])yrD[yr]={};
-        ['A','B','C','D','BH'].forEach(k=>{if(yrD[yr][k]===undefined)yrD[yr][k]={s:eqs[k],e:eqs[k]};yrD[yr][k].e=eqs[k];});
+        var eqA2=totalEq(st.A,SP[i]),eqB2=totalEq(st.B,SP[i]),eqD2=totalEq(st.D,SP[i]);
+        cv.push({d:DATES[i],A:eqA2,B:eqB2,C:st.C.eq,D:eqD2,BH:st.BH.eq});
+        var eqs={A:eqA2,B:eqB2,C:st.C.eq,D:eqD2,BH:st.BH.eq};
+        ['A','B','C','D','BH'].forEach(function(kk){if(eqs[kk]>pk[kk])pk[kk]=eqs[kk];mddArr[kk].push((eqs[kk]-pk[kk])/pk[kk]*100);});
+        var yr2=DATES[i].slice(0,4);
+        if(!yrD[yr2])yrD[yr2]={};
+        ['A','B','C','D','BH'].forEach(function(kk){if(yrD[yr2][kk]===undefined)yrD[yr2][kk]={s:eqs[kk],e:eqs[kk]};yrD[yr2][kk].e=eqs[kk];});
       }
-      BT_RESULT={cv,yrD,logs,mdd:mddArr,st,cfgA:cfg.A,cfgB:cfg.B,cfgPos:cfg.pos,cfgLast:cfg,freqInfo:{medianDiff,isMonthly,freqScale,cbT1scaled,cbT2scaled,tsDdScaled}};
+      BT_RESULT={cv:cv,yrD:yrD,logs:logs,mdd:mddArr,st:st,cfgA:cfg.A,cfgB:cfg.B,cfgPos:cfg.pos,cfgLast:cfg,freqInfo:{medianDiff:medianDiff,isMonthly:isMonthly,freqScale:freqScale,cbT1scaled:cbT1scaled,cbT2scaled:cbT2scaled,tsDdScaled:tsDdScaled}};
       renderUI();
-    }catch(err){alert('回測失敗：'+err.message);console.error(err);}
-    finally{$('loadingOverlay').classList.add('hidden');switchTab({target:document.querySelectorAll('.tab')[2]},'result');}
+    }catch(err){alert('\u56de\u6e2c\u5931\u6557\uff1a'+err.message);console.error(err);}
+    finally{
+      $('loadingOverlay').classList.add('hidden');
+      switchTab({target:document.querySelectorAll('.tab')[2]},'result');
+    }
   },80);
 }
 
 function renderUI(){
-  const r=BT_RESULT,st=r.st;
-  const regColor={'ON':'var(--green)','OFF':'var(--red)','MID':'var(--yellow)','N':'var(--muted)'};
-  const regLabel={'ON':'牛市 ON','OFF':'熊市 OFF','MID':'中性 MID','N':'停用'};
-  const rb=$('regimeBadge');
+  var r=BT_RESULT,st=r.st;
+  var regColor={'ON':'var(--green)','OFF':'var(--red)','MID':'var(--yellow)','N':'var(--muted)'};
+  var regLabel={'ON':'\u725b\u5e02 ON','OFF':'\u718a\u5e02 OFF','MID':'\u4e2d\u6027 MID','N':'\u505c\u7528'};
+  var rb=$('regimeBadge');
   rb.textContent='Regime: '+(regLabel[st.regime]||'--');
-  // 顯示資料頻率偵測結果
   if(r.freqInfo){
-    const fi=r.freqInfo;
-    const freqBadge=document.getElementById('freqBadge');
+    var fi=r.freqInfo;
+    var freqBadge=$('freqBadge');
     if(freqBadge){
-      freqBadge.textContent=fi.isMonthly?
-        `📅 月頻（${fi.medianDiff}日/筆）熔斷×4 停損${(fi.tsDdScaled*100).toFixed(0)}%`:
-        `📅 日頻（${fi.medianDiff}日/筆）`;
+      freqBadge.textContent=fi.isMonthly?'\ud83d\udcc5 \u6708\u983b\uff08'+fi.medianDiff+'\u65e5/\u7b46\uff09\u71b1\u65b7\xd74 \u505c\u640d'+(fi.tsDdScaled*100).toFixed(0)+'%':'\ud83d\udcc5 \u65e5\u983b\uff08'+fi.medianDiff+'\u65e5/\u7b46\uff09';
       freqBadge.style.color=fi.isMonthly?'var(--yellow)':'var(--green)';
       freqBadge.style.borderColor=fi.isMonthly?'var(--yellow)':'var(--green)';
     }
   }
   rb.style.background=st.regime==='ON'?'var(--green-dim)':st.regime==='OFF'?'var(--red-dim)':st.regime==='MID'?'var(--yellow-dim)':'var(--surface2)';
   rb.style.color=regColor[st.regime]||'var(--muted)';rb.style.borderColor=regColor[st.regime]||'var(--border)';
-  const liveCard=(k,title,color,showScore)=>{
-    const s=showScore?st[k].s:'--',ps=showScore?st[k].ps:'--';
-    const delta=showScore?(st[k].s-st[k].ps):null;
-    const deltaHtml=delta!==null?`<div class="live-delta"><span style="color:${delta>0?'var(--green)':delta<0?'var(--red)':'var(--muted)'};font-size:12px;font-weight:700;">${delta>0?'▲ +':delta<0?'▼ ':''}${delta}</span><br><span style="font-size:10px;color:var(--muted)">昨:${ps}</span></div>`:'';
-    let dbHtml='';
+  function liveCard(k,title,color,showScore){
+    var s=showScore?st[k].s:'--',ps=showScore?st[k].ps:'--';
+    var delta=showScore?(st[k].s-st[k].ps):null;
+    var deltaHtml=delta!==null?'<div class="live-delta"><span style="color:'+(delta>0?'var(--green)':delta<0?'var(--red)':'var(--muted)')+';font-size:12px;font-weight:700;">'+(delta>0?'\u25b2 +:':delta<0?'\u25bc ':'')+delta+'</span><br><span style="font-size:10px;color:var(--muted)">\u6628:'+ps+'</span></div>':'';
+    var dbHtml='';
     if(showScore){
-      const db=st[k].db||0,clearDays=k==='A'?r.cfgA.clearDays:r.cfgB.clearDays;
-      const clearScore=k==='A'?r.cfgA.s100:r.cfgB.s100;
+      var db=st[k].db||0,clearDays2=k==='A'?r.cfgA.clearDays:r.cfgB.clearDays;
+      var clearScore2=k==='A'?r.cfgA.s100:r.cfgB.s100;
       if(st[k].m==='NORMAL'||st[k].m==='PLUS'){
-        if(db>0){const pct=Math.round((db/clearDays)*100);dbHtml=`<div class="db-warn">⚠ 警示：連跌 ${db} / ${clearDays} 日，分數 ${s} &lt; ${clearScore}</div><div class="db-bar"><div class="db-bar-fill" style="width:${pct}%;background:var(--yellow)"></div></div>`;}
-        else dbHtml=`<div style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:10px;padding:3px 7px;border-radius:3px;background:var(--green-dim);border:1px solid var(--green);color:var(--green);font-family:monospace;">✓ 分數正常 (${s}分 ≥ ${clearScore})</div>`;
-      }else if(st[k].m==='CLEAR')dbHtml=`<div class="db-warn db-clear">✖ 清倉中：連跌 ${db} 日已達門檻</div>`;
-      else if(st[k].m==='STRIKE')dbHtml=`<div class="db-warn">⚡ 短打模式 (分數 ${s})</div>`;
+        if(db>0){var pct=Math.round((db/clearDays2)*100);dbHtml='<div class="db-warn">\u26a0 \u8b66\u793a\uff1a\u9023\u8dcc '+db+' / '+clearDays2+' \u65e5\uff0c\u5206\u6578 '+s+' &lt; '+clearScore2+'</div><div class="db-bar"><div class="db-bar-fill" style="width:'+pct+'%;background:var(--yellow)"></div></div>';}
+        else dbHtml='<div style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:10px;padding:3px 7px;border-radius:3px;background:var(--green-dim);border:1px solid var(--green);color:var(--green);font-family:monospace;">\u2713 \u5206\u6578\u6b63\u5e38 ('+s+'\u5206 \u2265 '+clearScore2+')</div>';
+      }else if(st[k].m==='CLEAR')dbHtml='<div class="db-warn db-clear">\u2716 \u6e05\u5009\u4e2d\uff1a\u9023\u8dcc '+db+' \u65e5\u5df2\u9054\u9580\u6cd5</div>';
+      else if(st[k].m==='STRIKE')dbHtml='<div class="db-warn">\u26a1 \u77ed\u6253\u6a21\u5f0f (\u5206\u6578 '+s+')</div>';
     }
-    let plusHtml='';
-    if(st[k].plusN>0&&st[k].plusSP>0){plusHtml=`<div class="plus-live"><div class="pl-title">⚡ 加碼倉位持有中</div><div class="pl-row"><span>建倉本金</span><span>${st[k].plusN.toFixed(0)}</span></div><div class="pl-row"><span>建倉指數</span><span>${st[k].plusSP.toFixed(1)}</span></div></div>`;}
-    else if(st[k].plusLastPnL!==null&&st[k].plusLastPnL!==undefined){
-      const pnl=st[k].plusLastPnL;
-      plusHtml=`<div class="plus-live" style="background:${pnl>=0?'var(--green-dim)':'var(--red-dim)'};border-color:${pnl>=0?'var(--green)':'var(--red)'}"><div class="pl-title" style="color:${pnl>=0?'var(--green)':'var(--red)'}">上一筆加碼損益</div><div class="pl-pnl" style="color:${pnl>=0?'var(--green)':'var(--red)'}">${pnl>=0?'+':''}${pnl.toFixed(0)}</div></div>`;
+    var plusHtml='';
+    if(showScore){
+      if(st[k].plusN>0&&st[k].plusSP>0){plusHtml='<div class="plus-live"><div class="pl-title">\u26a1 \u52a0\u78bc\u5009\u4f4d\u6301\u6709\u4e2d</div><div class="pl-row"><span>\u5efa\u5009\u672c\u91d1</span><span>'+st[k].plusN.toFixed(0)+'</span></div><div class="pl-row"><span>\u5efa\u5009\u6307\u6578</span><span>'+st[k].plusSP.toFixed(1)+'</span></div></div>';}
+      else if(st[k].plusLastPnL!==null&&st[k].plusLastPnL!==undefined){
+        var pnl=st[k].plusLastPnL;
+        plusHtml='<div class="plus-live" style="background:'+(pnl>=0?'var(--green-dim)':'var(--red-dim)')+';border-color:'+(pnl>=0?'var(--green)':'var(--red)')+'"><div class="pl-title" style="color:'+(pnl>=0?'var(--green)':'var(--red)')+'">上一筆加碼損益</div><div class="pl-pnl" style="color:'+(pnl>=0?'var(--green)':'var(--red)')+'">'+(pnl>=0?'+':'')+pnl.toFixed(0)+'</div></div>';
+      }
     }
-    const hasYC=st[k].yc!==undefined&&showScore;
-    const scoreBarHtml=showScore?`<div class="score-bar-row"><div class="score-bar"><div class="fill" style="width:${Math.max(0,Math.min(100,st[k].f1||50))}%;background:var(--accent)"></div></div><div class="score-bar"><div class="fill" style="width:${Math.max(0,Math.min(100,st[k].f5||50))}%;background:var(--green)"></div></div>${hasYC?`<div class="score-bar"><div class="fill" style="width:${Math.max(0,Math.min(100,st[k].yc||50))}%;background:var(--purple)"></div></div>`:''}</div><div class="live-sub"><span>F1 ${st[k].f1||'--'}</span><span>F5 ${st[k].f5||'--'}</span>${hasYC?`<span>YC ${st[k].yc||'--'}</span>`:''}</div>`:'';
-    const modeLabel=st[k].m==='PLUS'?`${bdg('PLUS')} <span style="font-size:11px;color:var(--blue)">+${(r.cfgLast?.pos?.plusMult||0.5)*100}%</span>`:bdg(st[k].m||'NORMAL');
-    return `<div class="live-card"><div class="live-label" style="color:var(--${color})">${title}</div><div class="live-main">${modeLabel}<span class="live-score">${s!=='--'?s+'分':'聯集'}</span><div style="flex:1"></div>${deltaHtml}</div>${scoreBarHtml}${dbHtml}${plusHtml}</div>`;
-  };
-  $('liveDash').innerHTML=liveCard('A','方法 A（Delta）','yellow',true)+liveCard('B','方法 B（Z-Score）','green',true)+liveCard('C','方法 C（雙態跟隨）','accent',false)+liveCard('D','方法 D（全態跟隨）','purple',false);
-  $('metricsGrid').innerHTML=[['A','方法 A','yellow'],['B','方法 B','green'],['C','方法 C','accent'],['D','方法 D','purple'],['BH','B&H 基準','muted']].map(([k,label,col])=>{
-    const p=calcP(r.cv,k);
-    return `<div class="metric-card" style="border-top:3px solid var(--${col})"><div class="m-title">${label}</div><div class="m-row"><span>區間報酬</span><span class="m-val ${parseFloat(p.t)>0?'ty':''}">${parseFloat(p.t)>0?'+':''}${p.t}%</span></div><div class="m-row"><span>CAGR</span><span class="m-val">${p.c}%</span></div><div class="m-row"><span>MDD</span><span class="m-val tr">${p.m}%</span></div><div class="m-row"><span>Sharpe</span><span class="m-val tg">${p.s}</span></div><div class="m-row" style="opacity:.5"><span>年數</span><span class="m-val mono" style="font-size:11px">${p.yr}yr</span></div></div>`;
+    var hasYC=st[k].yc!==undefined&&showScore;
+    var scoreBarHtml=showScore?'<div class="score-bar-row"><div class="score-bar"><div class="fill" style="width:'+Math.max(0,Math.min(100,st[k].f1||50))+'%;background:var(--accent)"></div></div><div class="score-bar"><div class="fill" style="width:'+Math.max(0,Math.min(100,st[k].f5||50))+'%;background:var(--green)"></div></div>'+(hasYC?'<div class="score-bar"><div class="fill" style="width:'+Math.max(0,Math.min(100,st[k].yc||50))+'%;background:var(--purple)"></div></div>':'')+'</div><div class="live-sub"><span>F1 '+(st[k].f1||'--')+'</span><span>F5 '+(st[k].f5||'--')+'</span>'+(hasYC?'<span>YC '+(st[k].yc||'--')+'</span>':'')+'</div>':'';
+    var modeLabel=st[k].m==='PLUS'?bdg('PLUS')+' <span style="font-size:11px;color:var(--blue)">+'+(r.cfgLast&&r.cfgLast.pos?r.cfgLast.pos.plusMult:0.5)*100+'%</span>':bdg(st[k].m||'NORMAL');
+    return '<div class="live-card"><div class="live-label" style="color:var(--'+color+')">'+title+'</div><div class="live-main">'+modeLabel+'<span class="live-score">'+(s!=='--'?s+'\u5206':'\u806f\u96c6')+'</span><div style="flex:1"></div>'+deltaHtml+'</div>'+scoreBarHtml+dbHtml+plusHtml+'</div>';
+  }
+  $('liveDash').innerHTML=liveCard('A','\u65b9\u6cd5 A\uff08Delta\uff09','yellow',true)+liveCard('B','\u65b9\u6cd5 B\uff08Z-Score\uff09','green',true)+liveCard('C','\u65b9\u6cd5 C\uff08\u96d9\u614b\u8ddf\u96a8\uff09','accent',false)+liveCard('D','\u65b9\u6cd5 D\uff08\u5168\u614b\u8ddf\u96a8\uff09','purple',false);
+  $('metricsGrid').innerHTML=[['A','\u65b9\u6cd5 A','yellow'],['B','\u65b9\u6cd5 B','green'],['C','\u65b9\u6cd5 C','accent'],['D','\u65b9\u6cd5 D','purple'],['BH','B&H \u57fa\u6e96','muted']].map(function(row){
+    var k=row[0],label=row[1],col=row[2];
+    var p=calcP(r.cv,k);
+    return '<div class="metric-card" style="border-top:3px solid var(--'+col+')"><div class="m-title">'+label+'</div><div class="m-row"><span>\u5340\u9593\u5831\u916c</span><span class="m-val '+(parseFloat(p.t)>0?'ty':'')+'">'+( parseFloat(p.t)>0?'+':'')+p.t+'%</span></div><div class="m-row"><span>CAGR</span><span class="m-val">'+p.c+'%</span></div><div class="m-row"><span>MDD</span><span class="m-val tr">'+p.m+'%</span></div><div class="m-row"><span>Sharpe</span><span class="m-val tg">'+p.s+'</span></div><div class="m-row" style="opacity:.5"><span>\u5e74\u6578</span><span class="m-val mono" style="font-size:11px">'+p.yr+'yr</span></div></div>';
   }).join('');
   if(MOM_RESULT) overlaymomOnShieldChart();
   if(charts.n){charts.n.destroy();charts.d.destroy();}
-  const sc={x:{ticks:{color:'#6b7a99',maxTicksLimit:10},grid:{color:'#1a2030'}},y:{ticks:{color:'#6b7a99'},grid:{color:'#1a2030'}}};
-  const leg={labels:{color:'#6b7a99',boxWidth:10,font:{size:11}}};
-  const opt={responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},animation:{duration:300}};
-  const ds=(arr,label,color,w,dash)=>({label,data:arr,borderColor:color,borderWidth:w,pointRadius:0,borderDash:dash||[]});
-  charts.n=new Chart($('navChart').getContext('2d'),{type:'line',data:{labels:r.cv.map(x=>x.d),datasets:[ds(r.cv.map(x=>x.A),'方法 A','#ffb830',2),ds(r.cv.map(x=>x.B),'方法 B','#00e5a0',2),ds(r.cv.map(x=>x.C),'方法 C','#7eb8ff',2),ds(r.cv.map(x=>x.D),'方法 D','#b388ff',2),ds(r.cv.map(x=>x.BH),'B&H','#3d4a66',1)]},options:{...opt,plugins:{legend:leg},scales:{...sc,y:{...sc.y,type:'logarithmic'}}}});
-  charts.d=new Chart($('ddChart').getContext('2d'),{type:'line',data:{labels:r.cv.map(x=>x.d),datasets:[ds(r.mdd.A,'A','#ffb830',1),ds(r.mdd.B,'B','#00e5a0',1),ds(r.mdd.C,'C','#7eb8ff',1),ds(r.mdd.D,'D','#b388ff',1),ds(r.mdd.BH,'BH','#3d4a66',1)]},options:{...opt,plugins:{legend:{display:false}},scales:sc}});
+  var sc={x:{ticks:{color:'#6b7a99',maxTicksLimit:10},grid:{color:'#1a2030'}},y:{ticks:{color:'#6b7a99'},grid:{color:'#1a2030'}}};
+  var leg={labels:{color:'#6b7a99',boxWidth:10,font:{size:11}}};
+  var opt={responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},animation:{duration:300}};
+  function ds(arr,label,color,w,dash){return {label:label,data:arr,borderColor:color,borderWidth:w,pointRadius:0,borderDash:dash||[]};}
+  charts.n=new Chart($('navChart').getContext('2d'),{type:'line',data:{labels:r.cv.map(function(x){return x.d;}),datasets:[ds(r.cv.map(function(x){return x.A;}),'A','#ffb830',2),ds(r.cv.map(function(x){return x.B;}),'B','#00e5a0',2),ds(r.cv.map(function(x){return x.C;}),'C','#7eb8ff',2),ds(r.cv.map(function(x){return x.D;}),'D','#b388ff',2),ds(r.cv.map(function(x){return x.BH;}),'B&H','#3d4a66',1)]},options:Object.assign({},opt,{plugins:{legend:leg},scales:Object.assign({},sc,{y:Object.assign({},sc.y,{type:'logarithmic'})})})});
+  charts.d=new Chart($('ddChart').getContext('2d'),{type:'line',data:{labels:r.cv.map(function(x){return x.d;}),datasets:[ds(r.mdd.A,'A','#ffb830',1),ds(r.mdd.B,'B','#00e5a0',1),ds(r.mdd.C,'C','#7eb8ff',1),ds(r.mdd.D,'D','#b388ff',1),ds(r.mdd.BH,'BH','#3d4a66',1)]},options:Object.assign({},opt,{plugins:{legend:{display:false}},scales:sc})});
   if(MOM_RESULT) overlaymomOnShieldChart();
-  $('yHead').innerHTML='<th>年份</th><th class="ty">A</th><th class="tg">B</th><th class="tc">C</th><th class="tp">D</th><th>B&H</th>';
-  $('yrBody').innerHTML=Object.keys(r.yrD).sort().reverse().map(yr=>{
-    const y=r.yrD[yr],t=k=>((y[k].e/y[k].s-1)*100).toFixed(1);
-    return `<tr><td>${yr}</td><td class="${parseFloat(t('A'))>=0?'ty':'tr'}">${t('A')}%</td><td class="${parseFloat(t('B'))>=0?'tg':'tr'}">${t('B')}%</td><td class="${parseFloat(t('C'))>=0?'tc':'tr'}">${t('C')}%</td><td class="${parseFloat(t('D'))>=0?'tp':'tr'}">${t('D')}%</td><td class="${parseFloat(t('BH'))>=0?'':'tr'}">${t('BH')}%</td></tr>`;
+  $('yHead').innerHTML='<th>\u5e74\u4efd</th><th class="ty">A</th><th class="tg">B</th><th class="tc">C</th><th class="tp">D</th><th>B&H</th>';
+  $('yrBody').innerHTML=Object.keys(r.yrD).sort().reverse().map(function(yr){
+    var y=r.yrD[yr];
+    function t(k){return ((y[k].e/y[k].s-1)*100).toFixed(1);}
+    return '<tr><td>'+yr+'</td><td class="'+(parseFloat(t('A'))>=0?'ty':'tr')+'">'+t('A')+'%</td><td class="'+(parseFloat(t('B'))>=0?'tg':'tr')+'">'+t('B')+'%</td><td class="'+(parseFloat(t('C'))>=0?'tc':'tr')+'">'+t('C')+'%</td><td class="'+(parseFloat(t('D'))>=0?'tp':'tr')+'">'+t('D')+'%</td><td class="'+(parseFloat(t('BH'))>=0?'':'tr')+'">'+t('BH')+'%</td></tr>';
   }).join('');
   logFilter='ALL';
-  document.querySelectorAll('.lfb').forEach(b=>b.classList.remove('active'));
-  document.querySelector('.lfb')?.classList.add('active');
+  document.querySelectorAll('.lfb').forEach(function(b){b.classList.remove('active');});
+  var firstLfb=document.querySelector('.lfb');if(firstLfb)firstLfb.classList.add('active');
   renderLogs();
 }
 
 function setLogFilter(f,el){
   logFilter=f;
-  document.querySelectorAll('#panel-logs .lfb').forEach(b=>b.classList.remove('active'));
-  el.classList.add('active');renderLogs();
+  document.querySelectorAll('#panel-logs .lfb').forEach(function(b){b.classList.remove('active');});
+  el.classList.add('active'); renderLogs();
 }
 
 function renderLogs(){
   if(!BT_RESULT)return;
-  const allLogs=[...BT_RESULT.logs].reverse();
-  const filtered=logFilter==='ALL'?allLogs:allLogs.filter(L=>L.mtd===logFilter);
-  $('logCount').textContent=filtered.length+' 筆';
-  const cm={A:'yellow',B:'green',C:'accent',D:'purple'};
+  var allLogs=BT_RESULT.logs.slice().reverse();
+  var filtered=logFilter==='ALL'?allLogs:allLogs.filter(function(L){return L.mtd===logFilter;});
+  $('logCount').textContent=filtered.length+' \u7b46';
+  var cm={A:'yellow',B:'green',C:'accent',D:'purple'};
   $('historyBody').innerHTML=filtered.length
-    ?filtered.map(L=>{
-        const pnlHtml=L.pnl!==null&&L.pnl!==undefined
-          ?`<span style="font-family:monospace;font-weight:700;color:${L.pnl>=0?'var(--green)':'var(--red)'};">${L.pnl>=0?'+':''}${L.pnl.toFixed(0)}</span>`
-          :'<span style="color:var(--dim)">—</span>';
-        return `<tr class="log-row"><td class="mono">${L.d}</td><td style="color:var(--${cm[L.mtd]||'muted'});font-weight:700;">方法 ${L.mtd}</td><td>${bdg(L.fm)} <span style="color:var(--muted);font-size:10px">➔</span> ${bdg(L.to)}</td><td class="mono">${L.sp}</td><td class="mono" style="font-weight:700;color:var(--white)">${L.s}</td><td class="mono" style="color:var(--muted)">${L.ps}</td><td class="mono">${L.db}</td><td>${pnlHtml}</td></tr>`;
+    ?filtered.map(function(L){
+        var pnlHtml=L.pnl!==null&&L.pnl!==undefined
+          ?'<span style="font-family:monospace;font-weight:700;color:'+(L.pnl>=0?'var(--green)':'var(--red)')+';">'+(L.pnl>=0?'+':'')+L.pnl.toFixed(0)+'</span>'
+          :'<span style="color:var(--dim)">\u2014</span>';
+        return '<tr class="log-row"><td class="mono">'+L.d+'</td><td style="color:var(--'+(cm[L.mtd]||'muted')+');font-weight:700;">\u65b9\u6cd5 '+L.mtd+'</td><td>'+bdg(L.fm)+' <span style="color:var(--muted);font-size:10px">\u279e</span> '+bdg(L.to)+'</td><td class="mono">'+L.sp+'</td><td class="mono" style="font-weight:700;color:var(--white)">'+L.s+'</td><td class="mono" style="color:var(--muted)">'+L.ps+'</td><td class="mono">'+L.db+'</td><td>'+pnlHtml+'</td></tr>';
       }).join('')
-    :'<tr><td colspan="8" style="text-align:center;color:var(--muted)">無符合條件的紀錄</td></tr>';
+    :'<tr><td colspan="8" style="text-align:center;color:var(--muted)">\u7121\u7b26\u5408\u689d\u4ef6\u7684\u7d00\u9304</td></tr>';
 }
 
 function downloadLogCSV(){
-  if(!BT_RESULT){alert('請先執行回測推演');return;}
-  const src=logFilter==='ALL'?BT_RESULT.logs:BT_RESULT.logs.filter(L=>L.mtd===logFilter);
-  const header='日期,引擎,由,至,大盤點位,當日分數,前日分數,連跌天數,加碼損益';
-  const rows=src.map(L=>[L.d,'方法'+L.mtd,L.fm,L.to,L.sp,L.s,L.ps,L.db,L.pnl!==null&&L.pnl!==undefined?L.pnl.toFixed(0):''].join(','));
-  const blob=new Blob([[header,...rows].join('\n')],{type:'text/csv;charset=utf-8;'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  if(!BT_RESULT){alert('\u8acb\u5148\u57f7\u884c\u56de\u6e2c\u63a8\u6f14');return;}
+  var src=logFilter==='ALL'?BT_RESULT.logs:BT_RESULT.logs.filter(function(L){return L.mtd===logFilter;});
+  var header='\u65e5\u671f,\u5f15\u64ce,\u7531,\u81f3,\u5927\u76e4\u9ede\u4f4d,\u7576\u65e5\u5206\u6578,\u524d\u65e5\u5206\u6578,\u9023\u8dcc\u5929\u6578,\u52a0\u78bc\u640d\u76ca';
+  var rows=src.map(function(L){return [L.d,'\u65b9\u6cd5'+L.mtd,L.fm,L.to,L.sp,L.s,L.ps,L.db,L.pnl!==null&&L.pnl!==undefined?L.pnl.toFixed(0):''].join(',');});
+  var blob=new Blob([[header].concat(rows).join('\n')],{type:'text/csv;charset=utf-8;'});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download='Shield_Logs'+(logFilter!=='ALL'?'_'+logFilter:'')+'.csv';
   document.body.appendChild(a);a.click();document.body.removeChild(a);
 }
 
 function switchTab(e,name){
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-  if(e.target?.classList)e.target.classList.add('active');
-  document.getElementById('panel-'+name)?.classList.add('active');
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
+  document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('active');});
+  if(e&&e.target&&e.target.classList)e.target.classList.add('active');
+  var panel=document.getElementById('panel-'+name);if(panel)panel.classList.add('active');
 }
 </script>
 
