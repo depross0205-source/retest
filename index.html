@@ -177,6 +177,7 @@ td{padding:9px;border-bottom:1px solid var(--border)}
     <span id="regimeBadge" style="font-size:12px;padding:3px 10px;border-radius:3px;font-family:monospace;background:var(--surface2);color:var(--muted);border:1px solid var(--border)">Regime: --</span>
     <span id="storageBadge" style="font-size:11px;padding:3px 10px;border-radius:3px;font-family:monospace;background:var(--surface2);color:var(--muted);border:1px solid var(--border)" title="localStorage 快取狀態">💾 --</span>
     <button onclick="clearStorage()" style="font-size:11px;padding:3px 10px;border-radius:3px;background:transparent;border:1px solid var(--border);color:var(--dim);cursor:pointer;font-family:monospace" title="清除 localStorage 快取">🗑 清除快取</button>
+    <span id="freqBadge" style="font-size:11px;padding:3px 10px;border-radius:3px;font-family:monospace;background:var(--surface2);color:var(--muted);border:1px solid var(--border)">📅 --</span>
     <div id="dataSourceBadge" style="font-size:12px;padding:4px 12px;border:1px solid var(--border-hi);color:var(--muted);font-family:monospace;">● 初始模式</div>
   </div>
 </div>
@@ -229,11 +230,17 @@ td{padding:9px;border-bottom:1px solid var(--border)}
 </div>
 <div class="step-block">
   <div class="step-header"><span class="step-num sn2">2</span>
-    <div><div class="step-title">自動抓取數據</div><div class="step-sub">SPY/RSP adjclose & FRED & CAPE（multpl.com）自動整併</div></div></div>
+    <div><div class="step-title">自動抓取數據</div><div class="step-sub">純日頻策略：首次下載完整歷史 CSV → 每日更新覆蓋近30天 → 下載覆蓋後存檔</div></div></div>
   <div class="step-body">
+    <div style="padding:8px 10px;background:var(--blue-dim);border:1px solid var(--blue);border-radius:3px;font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.7">
+      <b style="color:var(--blue)">建議工作流程：</b><br>
+      ① 首次：點「🌐 完整日頻下載」→ 自動下載 CSV 存到手機<br>
+      ② 每日：上傳昨天的 CSV → 點「⚡ 每日更新」→ 再下載新 CSV 存回去<br>
+      ③ 歷史資料存在 CSV 檔案，不存瀏覽器快取，不怕容量限制
+    </div>
     <div class="grid2" style="margin-bottom:10px">
-      <button class="btn-blue" onclick="fetchAndMerge(false)" style="font-size:12px">🔄 完整抓取（首次/每月）<br><span style="font-weight:400;font-size:10px">全部歷史 + CAPE 月資料</span></button>
-      <button class="btn-outline" onclick="fetchAndMerge(true)" style="font-size:12px">⚡ 每日快速更新<br><span style="font-weight:400;font-size:10px">只補近 15 個交易日</span></button>
+      <button class="btn-blue" onclick="fetchFullHistory()" style="font-size:12px">🌐 完整日頻下載（首次）<br><span style="font-weight:400;font-size:10px">2003-04 至今全部日頻 + 自動下載 CSV</span></button>
+      <button class="btn-outline" onclick="fetchDailyUpdate()" style="font-size:12px">⚡ 每日更新（補缺口）<br><span style="font-weight:400;font-size:10px">自動偵測缺口，覆蓋近30天+缺口期</span></button>
     </div>
     <div style="margin-top:8px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:3px">
       <div style="font-size:11px;color:var(--teal);font-weight:700;margin-bottom:6px">📎 CAPE 歷史資料上傳</div>
@@ -599,8 +606,9 @@ const LS_KEY_DB='shield_DB', LS_KEY_PRICES='shield_MOM_PRICES';
 const LS_KEY_UPDATED='shield_lastUpdated', LS_KEY_ASSET='shield_assetDefs';
 
 function saveToStorage(){
+  // ★ DB 不存 localStorage（改用 CSV 檔案管理，避免容量限制）
+  // 只存 MOM 價格快取、資產設定、上次更新時間
   try{
-    localStorage.setItem(LS_KEY_DB,JSON.stringify(DB));
     localStorage.setItem(LS_KEY_PRICES,JSON.stringify(MOM_PRICES));
     localStorage.setItem(LS_KEY_UPDATED,new Date().toISOString());
     const assetState=MOM_ASSET_DEFS.map(a=>({ticker:a.ticker,enabled:a.enabled}));
@@ -614,13 +622,12 @@ function saveToStorage(){
 }
 
 function loadFromStorage(){
+  // ★ DB 不從 localStorage 讀取（從 CSV 上傳）
+  // 只讀 MOM 價格快取和資產設定
   try{
-    const rawDB=localStorage.getItem(LS_KEY_DB);
     const rawPrices=localStorage.getItem(LS_KEY_PRICES);
     const rawAsset=localStorage.getItem(LS_KEY_ASSET);
     const updated=localStorage.getItem(LS_KEY_UPDATED);
-    if(!rawDB) return false;
-    DB=JSON.parse(rawDB);
     if(rawPrices) MOM_PRICES=JSON.parse(rawPrices);
     if(rawAsset){
       const states=JSON.parse(rawAsset);
@@ -629,15 +636,9 @@ function loadFromStorage(){
         if(def) def.enabled=s.enabled;
       });
     }
-    sortAndFill(); updateMomStatusBar();
-    if(updated){
-      const dt=new Date(updated);
-      const b=$('dataSourceBadge');
-      b.textContent=`● 快取 (${DB.length}筆)`;
-      b.style.color='var(--green)';
-      updateStorageBadge(dt);
-    }
-    return true;
+    updateMomStatusBar();
+    if(updated){ updateStorageBadge(new Date(updated)); }
+    return !!(rawPrices||rawAsset);
   }catch(e){ console.warn('localStorage 載入失敗：',e.message); return false; }
 }
 
@@ -651,15 +652,10 @@ function updateStorageBadge(dt){
 }
 
 function clearStorage(){
-  if(!confirm('確定要清除所有 localStorage 快取？')) return;
-  [LS_KEY_DB,LS_KEY_PRICES,LS_KEY_UPDATED,LS_KEY_ASSET].forEach(k=>localStorage.removeItem(k));
-  DB=[]; MOM_PRICES={}; AUTO_FETCHED=false;
-  sortAndFill(); updateMomStatusBar(); initAssetChips();
-  $('storageBadge').textContent='💾 已清除'; $('storageBadge').style.color='var(--muted)';
-  $('dataSourceBadge').textContent='● 初始模式'; $('dataSourceBadge').style.color='var(--muted)';
-  const area=$('csvUploadArea'), lock=$('csvLockMsg');
-  if(area) area.classList.remove('hidden'); if(lock) lock.classList.add('hidden');
-  alert('快取已清除。請執行「完整抓取」或上傳 CSV。');
+  if(!confirm('清除 MOM 快取和資產設定？（DB 資料不受影響）')) return;
+  [LS_KEY_PRICES,LS_KEY_UPDATED,LS_KEY_ASSET].forEach(k=>localStorage.removeItem(k));
+  MOM_PRICES={}; updateMomStatusBar(); initAssetChips();
+  $('storageBadge').textContent='💾 MOM快取已清除'; $('storageBadge').style.color='var(--muted)';
 }
 
 // ════ 動能資產池 ════
@@ -694,17 +690,10 @@ function lockCsvUpload(){
 window.addEventListener('DOMContentLoaded',()=>{
   $('dbDate').value=new Date().toISOString().slice(0,10);
   checkWeekend(); updateStrkInfo(); initAssetChips();
-  const loaded=loadFromStorage();
-  if(loaded){
-    const updated=localStorage.getItem(LS_KEY_UPDATED);
-    const dt=updated?new Date(updated):null;
-    const daysSince=dt?Math.floor((Date.now()-dt.getTime())/86400000):99;
-    if(daysSince>=1) setLog(`💾 已載入快取（${DB.length}筆），上次更新 ${daysSince} 天前。建議執行「⚡ 每日快速更新」。`,null);
-    else setLog(`💾 已載入今日快取（${DB.length}筆）。`,true);
-  } else {
-    $('storageBadge').textContent='💾 無快取'; $('storageBadge').style.color='var(--muted)';
-    setLog('尚無快取資料，請執行「🔄 完整抓取」或上傳 CSV。',null);
-  }
+  loadFromStorage(); // 只載入 MOM 快取和資產設定
+  $('storageBadge').textContent='💾 DB=CSV';
+  $('storageBadge').style.color='var(--muted)';
+  setLog('📂 請上傳歷史 CSV，或點「🌐 完整日頻下載」取得首次資料。',null);
 });
 
 function initAssetChips(){
@@ -921,174 +910,228 @@ function loadCapeCSV(event){
   reader.readAsText(file,'UTF-8');
 }
 
-async function fetchAndMerge(quickMode=false){
-  const key=$('apiFredKey').value.trim(); let proxy=$('apiProxy').value.trim();
-  if(!key){alert('請填寫 FRED API Key');return;}
-  if(proxy&&!proxy.includes('url=')) proxy=proxy.endsWith('/')?proxy+'?url=':proxy+'/?url=';
-  const PROXIES=[proxy,'https://api.allorigins.win/raw?url=','https://api.codetabs.com/v1/proxy?quest='].filter(Boolean);
-  $('loadingOverlay').classList.remove('hidden');
-  setLog(quickMode?'⚡ 每日快速更新中...':'🔄 完整抓取中（含 CAPE）...');
-  const fetchFB=async url=>{
-    let lastErr;
-    for(const p of PROXIES){
-      try{
-        const res=await fetch(p+encodeURIComponent(url));
-        if(!res.ok) throw new Error('HTTP '+res.status);
-        if((res.headers.get('content-type')||'').includes('text/html')&&!url.includes('multpl')) throw new Error('Proxy 回傳 HTML');
-        return res;
-      }catch(e){lastErr=e;}
-    }
-    throw lastErr||new Error('所有 Proxy 失敗');
-  };
-  const getYf=async ticker=>{
-    setLog((quickMode?'⚡':'🔄')+' Yahoo: '+ticker+'...');
-    $('loadingText').textContent='抓取 '+ticker;
-    const range=quickMode?'1mo':'max';
-    const url='https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?range='+range+'&interval=1d';
-    const res=await fetchFB(url); const j=await res.json();
-    const d={},chart=j.chart.result[0];
-    chart.timestamp.forEach((t,i)=>{
-      const adj=chart.indicators?.adjclose?.[0]?.adjclose?.[i];
-      const cl=chart.indicators?.quote?.[0]?.close?.[i];
-      const val=adj??cl;
-      if(val&&val>0) d[new Date(t*1000).toISOString().slice(0,10)]=val;
-    });
-    return d;
-  };
-  const getFred=async id=>{
-    setLog((quickMode?'⚡':'🔄')+' FRED: '+id+'...');
-    $('loadingText').textContent='抓取 FRED: '+id;
-    let url='https://api.stlouisfed.org/fred/series/observations?series_id='+id+'&api_key='+key+'&file_type=json';
-    if(quickMode){const from=new Date(Date.now()-45*86400000).toISOString().slice(0,10);url+='&observation_start='+from;}
-    const res=await fetchFB(url); const j=await res.json();
-    if(j.error_message) throw new Error('FRED: '+j.error_message);
-    const d={};j.observations.forEach(o=>{if(o.value!=='.') d[o.date]=parseFloat(o.value);});return d;
-  };
-  const fetchCape=async()=>{
-    setLog('🔄 CAPE：抓取中...'); $('loadingText').textContent='抓取 CAPE 歷史...';
-    const capeByMonth={};
-    try{
-      const url='https://www.multpl.com/shiller-pe/table/by-month.json';
-      const res=await fetchFB(url); const text=await res.text();
-      let parsed; try{parsed=JSON.parse(text);}catch(e){parsed=null;}
-      if(parsed){
-        const rows=parsed.data||parsed.rows||parsed;
-        if(Array.isArray(rows)){
-          rows.forEach(row=>{
-            let dateVal,numVal;
-            if(Array.isArray(row)){dateVal=new Date(row[0]);numVal=parseFloat(row[1]);}
-            else if(row.date&&row.value!==undefined){dateVal=new Date(row.date);numVal=parseFloat(row.value);}
-            if(dateVal&&!isNaN(dateVal)&&!isNaN(numVal)&&numVal>0){capeByMonth[dateVal.toISOString().slice(0,7)]=numVal;}
-          });
-        }
-      }
-      if(Object.keys(capeByMonth).length>10){setLog(`🔄 CAPE：取得 ${Object.keys(capeByMonth).length} 個月資料`);return capeByMonth;}
-    }catch(e){}
-    try{
-      const url='https://www.multpl.com/shiller-pe/table/by-month';
-      const res=await fetchFB(url); const html=await res.text();
-      const trPattern=/<tr[^>]*>([\s\S]*?)<\/tr>/gi; let trMatch;
-      while((trMatch=trPattern.exec(html))!==null){
-        const inner=trMatch[1];
-        const tdTexts=(inner.match(/<td[^>]*>([\s\S]*?)<\/td>/gi)||[]).map(td=>td.replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim());
-        if(tdTexts.length>=2){
-          const numVal=parseFloat(tdTexts[1].replace(/,/g,''));
-          if(isNaN(numVal)||numVal<=0) continue;
-          const d=new Date(tdTexts[0].replace(/\s+/g,' ').trim());
-          if(!isNaN(d.getTime())) capeByMonth[d.toISOString().slice(0,7)]=numVal;
-        }
-      }
-      if(Object.keys(capeByMonth).length>10){setLog(`🔄 CAPE：HTML解析取得 ${Object.keys(capeByMonth).length} 個月資料`);return capeByMonth;}
-    }catch(e){}
-    setLog('⚠ CAPE 自動抓取失敗，請手動上傳 CAPE CSV。');
-    return capeByMonth;
-  };
-  try{
-    const spD=await getYf('SPY'),ewD=await getYf('RSP'),vixD=await getYf('^VIX');
-    const hyD=await getFred('BAMLH0A0HYM2'),tipD=await getFred('DFII10');
-    const y10D=await getFred('DGS10'),y2D=await getFred('DGS2');
-    let capeByMonth={};
-    if(!quickMode) capeByMonth=await fetchCape();
-    setLog('整併資料中...');
-    let added=0,updated=0,lHY=3.5,lT=1.5,l10=4.0,l2=3.8;
-    if(quickMode&&DB.length>0){const l=DB[DB.length-1];lHY=l.hy||lHY;lT=l.tips||lT;l10=l.y10||l10;l2=l.y2||l2;}
-    Object.keys(spD).sort().forEach(d=>{
-      if(hyD[d]!==undefined)lHY=hyD[d];if(tipD[d]!==undefined)lT=tipD[d];
-      if(y10D[d]!==undefined)l10=y10D[d];if(y2D[d]!==undefined)l2=y2D[d];
-      if(!vixD[d]) return;
-      const m=d.slice(0,7);
-      const capeForRow=capeByMonth[m]||null;
-      const ei=DB.findIndex(x=>x.d===d);
-      if(ei>-1){
-        DB[ei].sp=+spD[d].toFixed(4); DB[ei].ew=ewD[d]?+ewD[d].toFixed(4):+spD[d].toFixed(4);
-        DB[ei].vix=+vixD[d].toFixed(2); DB[ei].hy=+lHY.toFixed(4); DB[ei].tips=+lT.toFixed(2);
-        DB[ei].y10=+l10.toFixed(2); DB[ei].y2=+l2.toFixed(2);
-        if(capeForRow) DB[ei].cape=capeForRow; updated++;
-      }else{
-        const lastCape=DB.length>0?DB[DB.length-1].cape:30;
-        DB.push({d,sp:+spD[d].toFixed(4),ew:ewD[d]?+ewD[d].toFixed(4):+spD[d].toFixed(4),
-          vix:+vixD[d].toFixed(2),hy:+lHY.toFixed(4),tips:+lT.toFixed(2),
-          cape:capeForRow||lastCape,y10:+l10.toFixed(2),y2:+l2.toFixed(2)}); added++;
-      }
-    });
-    let capeChanged=0;
-    if(!quickMode&&Object.keys(capeByMonth).length>0) capeChanged=applyCapeMonthly(capeByMonth);
-    sortAndFill();
-    const capeInfo=quickMode?'':`，CAPE更新${capeChanged}筆`;
-    const msg=`✅ ${quickMode?'快速':'完整'}更新完成！新增 ${added}，更新 ${updated}${capeInfo}。共 ${DB.length} 筆`;
-    setLog(msg,true);
-    const b=$('dataSourceBadge'); b.textContent=`● ${quickMode?'⚡快速':'完整'}更新 (${DB.length}筆)`; b.style.color=quickMode?'var(--accent)':'var(--teal)';
-    lockCsvUpload();
-    const pendingCape=localStorage.getItem('shield_pendingCape');
-    if(pendingCape){
-      try{
-        const pendingMap=JSON.parse(pendingCape);
-        const pendingChanged=applyCapeMonthly(pendingMap);
-        if(pendingChanged>0){setLog(`✅ 套用暫存 CAPE：更新 ${pendingChanged} 筆`);sortAndFill();}
-        localStorage.removeItem('shield_pendingCape');
-      }catch(e){}
-    }
-    saveToStorage();
-    if(!quickMode) alert(msg);
-  }catch(err){setLog('❌ '+err.message,false);console.error(err);alert('❌ 抓取失敗：'+err.message);}
-  finally{$('loadingOverlay').classList.add('hidden');}
-}
-
-function manualAdd(){
-  const d=$('dbDate').value;
-  const sp=parseFloat($('dbSP').value),ew=parseFloat($('dbEW').value);
-  const vix=parseFloat($('dbVIX').value),hy=parseFloat($('dbHY').value),tips=parseFloat($('dbTIPS').value);
-  const y10=parseFloat($('dbY10').value),y2=parseFloat($('dbY2').value);
-  if(!d||isNaN(sp)||isNaN(vix)||isNaN(hy)||isNaN(tips)){alert('日期、SP500、VIX、HY、TIPS 為必填！');return;}
-  const lastCAPE=DB.length>0?DB[DB.length-1].cape:30;
-  const capeRaw=$('dbCAPE').value;
-  const cape=capeRaw===''||isNaN(parseFloat(capeRaw))?lastCAPE:parseFloat(capeRaw);
-  const lastY10=DB.length>0?DB[DB.length-1].y10:4.0;
-  const lastY2=DB.length>0?DB[DB.length-1].y2:3.8;
-  const row={d,sp,ew:isNaN(ew)?sp:ew,vix,hy,tips,cape,y10:isNaN(y10)?lastY10:y10,y2:isNaN(y2)?lastY2:y2};
-  const ei=DB.findIndex(x=>x.d===d);
-  if(ei>-1){DB[ei]=row;}else{DB.push(row);}
-  sortAndFill(); alert('✅ '+d+' 已'+(ei>-1?'覆蓋':'新增'));
-}
-
-function exportCSV(){
-  if(DB.length===0){alert('記憶體無資料！');return;}
-  const header='Date,SP500,SP500EW,HY_Spread,TIPS_10Y,VIX,CAPE,DGS10,DGS2';
-  const rows=DB.map(r=>[r.d,(r.sp||0).toFixed(4),(r.ew||0).toFixed(4),(r.hy||0).toFixed(4),
-    (r.tips||0).toFixed(2),(r.vix||0).toFixed(2),(r.cape||30).toFixed(2),(r.y10||0).toFixed(2),(r.y2||0).toFixed(2)].join(','));
-  const blob=new Blob([[header,...rows].join('\n')],{type:'text/csv;charset=utf-8;'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='Shield_Database.csv';
-  a.style.display='none';document.body.appendChild(a);a.click();document.body.removeChild(a);
-}
-
 // ════════════════════════════════════════
-// 動能輪動模組
+// 資料抓取：共用工具
 // ════════════════════════════════════════
-function getProxies(){
+function buildProxies(){
   let proxy=$('apiProxy').value.trim();
   if(proxy&&!proxy.includes('url=')) proxy=proxy.endsWith('/')?proxy+'?url=':proxy+'/?url=';
   return [proxy,'https://api.allorigins.win/raw?url=','https://api.codetabs.com/v1/proxy?quest='].filter(Boolean);
 }
+
+async function fetchFB(url,proxies){
+  let lastErr;
+  for(const p of proxies){
+    try{
+      const res=await fetch(p+encodeURIComponent(url));
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      if((res.headers.get('content-type')||'').includes('text/html')&&!url.includes('multpl')) throw new Error('Proxy 回傳 HTML');
+      return res;
+    }catch(e){lastErr=e;}
+  }
+  throw lastErr||new Error('所有 Proxy 失敗');
+}
+
+async function fetchYfDaily(ticker,proxies,fromDate){
+  setLog('🔄 Yahoo: '+ticker+'...');
+  $('loadingText').textContent='抓取 '+ticker;
+  let url='https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?range=max&interval=1d';
+  if(fromDate){
+    const t=Math.floor(new Date(fromDate).getTime()/1000);
+    url='https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?period1='+t+'&period2=9999999999&interval=1d';
+  }
+  const res=await fetchFB(url,proxies);
+  const j=await res.json();
+  const d={},chart=j?.chart?.result?.[0];
+  if(!chart) return d;
+  chart.timestamp.forEach((t,i)=>{
+    const adj=chart.indicators?.adjclose?.[0]?.adjclose?.[i];
+    const cl=chart.indicators?.quote?.[0]?.close?.[i];
+    const val=adj??cl;
+    if(val&&val>0) d[new Date(t*1000).toISOString().slice(0,10)]=val;
+  });
+  return d;
+}
+
+async function fetchFredSeries(id,key,proxies,fromDate){
+  setLog('🔄 FRED: '+id+'...');
+  $('loadingText').textContent='FRED: '+id;
+  let url='https://api.stlouisfed.org/fred/series/observations?series_id='+id+'&api_key='+key+'&file_type=json';
+  if(fromDate) url+='&observation_start='+fromDate;
+  const res=await fetchFB(url,proxies);
+  const j=await res.json();
+  if(j.error_message) throw new Error('FRED '+id+': '+j.error_message);
+  const d={};
+  j.observations.forEach(o=>{if(o.value!=='.') d[o.date]=parseFloat(o.value);});
+  return d;
+}
+
+async function fetchCapeMonthly(proxies){
+  setLog('🔄 CAPE（multpl.com）...');
+  $('loadingText').textContent='CAPE 歷史';
+  const capeByMonth={};
+  try{
+    const res=await fetchFB('https://www.multpl.com/shiller-pe/table/by-month.json',proxies);
+    const text=await res.text();
+    let parsed; try{parsed=JSON.parse(text);}catch(e){parsed=null;}
+    if(parsed){
+      const rows=parsed.data||parsed.rows||parsed;
+      if(Array.isArray(rows)){
+        rows.forEach(row=>{
+          let dateVal,numVal;
+          if(Array.isArray(row)){dateVal=new Date(row[0]);numVal=parseFloat(row[1]);}
+          else if(row.date&&row.value!==undefined){dateVal=new Date(row.date);numVal=parseFloat(row.value);}
+          if(dateVal&&!isNaN(dateVal.getTime())&&!isNaN(numVal)&&numVal>0)
+            capeByMonth[dateVal.toISOString().slice(0,7)]=numVal;
+        });
+      }
+    }
+    if(Object.keys(capeByMonth).length>10) return capeByMonth;
+  }catch(e){}
+  // HTML fallback
+  try{
+    const res=await fetchFB('https://www.multpl.com/shiller-pe/table/by-month',proxies);
+    const html=await res.text();
+    const trPattern=/<tr[^>]*>([\s\S]*?)<\/tr>/gi; let trMatch;
+    while((trMatch=trPattern.exec(html))!==null){
+      const inner=trMatch[1];
+      const tds=(inner.match(/<td[^>]*>([\s\S]*?)<\/td>/gi)||[]).map(td=>td.replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim());
+      if(tds.length>=2){
+        const numVal=parseFloat(tds[1].replace(/,/g,''));
+        if(isNaN(numVal)||numVal<=0) continue;
+        const d=new Date(tds[0].replace(/\s+/g,' ').trim());
+        if(!isNaN(d.getTime())) capeByMonth[d.toISOString().slice(0,7)]=numVal;
+      }
+    }
+  }catch(e){}
+  if(!Object.keys(capeByMonth).length) setLog('⚠ CAPE 自動抓取失敗，請手動上傳 CAPE CSV。');
+  return capeByMonth;
+}
+
+// 合併所有 series 到 DB（覆蓋指定日期範圍）
+function mergeIntoDB(spD,ewPreD,ewRspD,vixD,hyD,tipD,y10D,y2D,capeByMonth,fromDate,toDate){
+  let added=0,updated=0;
+  let lHY=3.5,lT=1.5,l10=4.0,l2=3.8,lCape=30;
+  // 用 DB 最近一筆初始化前向填充值
+  if(DB.length>0){const l=DB[DB.length-1];lHY=l.hy||lHY;lT=l.tips||lT;l10=l.y10||l10;l2=l.y2||l2;lCape=l.cape||lCape;}
+
+  // 合併所有有 SPY 的日期
+  const allDates=new Set([...Object.keys(spD)]);
+  [...allDates].sort().forEach(d=>{
+    if(fromDate&&d<fromDate) return;
+    if(toDate&&d>toDate) return;
+    if(!spD[d]) return;
+    if(hyD[d]!==undefined)lHY=hyD[d];
+    if(tipD[d]!==undefined)lT=tipD[d];
+    if(y10D[d]!==undefined)l10=y10D[d];
+    if(y2D[d]!==undefined)l2=y2D[d];
+    if(!vixD[d]) return; // VIX 是必填，沒有則跳過
+    const m=d.slice(0,7);
+    if(capeByMonth[m]) lCape=capeByMonth[m];
+    // EW：RSP優先，其次 SP500EWI，最後用 SPY（比率=1）
+    const ewVal=ewRspD[d]||ewPreD[d]||spD[d];
+    const ei=DB.findIndex(x=>x.d===d);
+    const row={d,sp:+spD[d].toFixed(4),ew:+ewVal.toFixed(4),
+      vix:+vixD[d].toFixed(2),hy:+lHY.toFixed(4),tips:+lT.toFixed(2),
+      cape:+lCape.toFixed(2),y10:+l10.toFixed(2),y2:+l2.toFixed(2)};
+    if(ei>-1){Object.assign(DB[ei],row);updated++;}
+    else{DB.push(row);added++;}
+  });
+  return {added,updated};
+}
+
+// ════════════════════════════════════════
+// 完整日頻首次下載（2003-04 至今）
+// ════════════════════════════════════════
+async function fetchFullHistory(){
+  const key=$('apiFredKey').value.trim();
+  if(!key){alert('請填寫 FRED API Key');return;}
+  const proxies=buildProxies();
+  $('loadingOverlay').classList.remove('hidden');
+  setLog('🌐 完整日頻下載中...（約需30秒）');
+  try{
+    // 抓取所有 series
+    const spD  = await fetchYfDaily('SPY',proxies);
+    const ewRspD = await fetchYfDaily('RSP',proxies);         // RSP ETF 2003-04-24起
+    // ^SP500EWI：RSP 上市前的 EW 代理（失敗不中斷）
+    let ewPreD={};
+    try{
+      setLog('🔄 Yahoo: ^SP500EWI（RSP前EW代理）...');
+      $('loadingText').textContent='抓取 ^SP500EWI';
+      ewPreD=await fetchYfDaily('^SP500EWI',proxies);
+      setLog(`✅ SP500EWI 取得 ${Object.keys(ewPreD).length} 筆`);
+    }catch(e){ setLog('⚠ ^SP500EWI 抓取失敗，2003年前 EW 將用 SPY 代替'); }
+    const vixD = await fetchYfDaily('^VIX',proxies);
+    const hyD  = await fetchFredSeries('BAMLH0A0HYM2',key,proxies);
+    const tipD = await fetchFredSeries('DFII10',key,proxies);
+    const y10D = await fetchFredSeries('DGS10',key,proxies);
+    const y2D  = await fetchFredSeries('DGS2',key,proxies);
+    const capeByMonth = await fetchCapeMonthly(proxies);
+    setLog('整併資料中...');
+    DB=[];
+    const {added}=mergeIntoDB(spD,ewPreD,ewRspD,vixD,hyD,tipD,y10D,y2D,capeByMonth);
+    // CAPE 月頻填充
+    applyCapeMonthly(capeByMonth);
+    sortAndFill();
+    const msg=`✅ 完整下載完成：${added} 筆日頻資料（${DB[0]?.d||''}～${DB[DB.length-1]?.d||''}）`;
+    setLog(msg,true);
+    const b=$('dataSourceBadge');b.textContent=`● 日頻 (${DB.length}筆)`;b.style.color='var(--teal)';
+    saveToStorage();
+    // 自動下載 CSV
+    await new Promise(r=>setTimeout(r,300));
+    exportCSV();
+    alert(msg+'
+
+已自動下載 CSV，請存到手機/電腦備用。
+每日操作：上傳此 CSV → 點「每日更新」→ 再下載覆蓋儲存。');
+  }catch(err){setLog('❌ '+err.message,false);console.error(err);alert('❌ 下載失敗：'+err.message);}
+  finally{$('loadingOverlay').classList.add('hidden');}
+}
+
+// ════════════════════════════════════════
+// 每日更新（自動偵測缺口，覆蓋近30天+缺口）
+// ════════════════════════════════════════
+async function fetchDailyUpdate(){
+  if(DB.length===0){alert('請先上傳歷史 CSV，再執行每日更新。');return;}
+  const key=$('apiFredKey').value.trim();
+  if(!key){alert('請填寫 FRED API Key');return;}
+  const proxies=buildProxies();
+  $('loadingOverlay').classList.remove('hidden');
+  // 計算缺口：DB最後日期 到 今天
+  const lastDate=DB[DB.length-1].d;
+  const today=new Date().toISOString().slice(0,10);
+  const gapDays=Math.max(0,Math.round((new Date(today)-new Date(lastDate))/86400000));
+  // 覆蓋範圍：最少30天，有缺口則到缺口+5天緩衝
+  const coverDays=Math.max(30,gapDays+5);
+  const fromDate=new Date(Date.now()-coverDays*86400000).toISOString().slice(0,10);
+  setLog(`⚡ 每日更新中（覆蓋 ${fromDate} 起，補缺口 ${gapDays} 天）...`);
+  try{
+    const spD  = await fetchYfDaily('SPY',proxies,fromDate);
+    const ewRspD = await fetchYfDaily('RSP',proxies,fromDate);
+    const vixD = await fetchYfDaily('^VIX',proxies,fromDate);
+    const hyD  = await fetchFredSeries('BAMLH0A0HYM2',key,proxies,fromDate);
+    const tipD = await fetchFredSeries('DFII10',key,proxies,fromDate);
+    const y10D = await fetchFredSeries('DGS10',key,proxies,fromDate);
+    const y2D  = await fetchFredSeries('DGS2',key,proxies,fromDate);
+    const capeByMonth = await fetchCapeMonthly(proxies);
+    setLog('整併資料中...');
+    const {added,updated}=mergeIntoDB(spD,{},ewRspD,vixD,hyD,tipD,y10D,y2D,capeByMonth,fromDate);
+    applyCapeMonthly(capeByMonth);
+    sortAndFill();
+    const msg=`✅ 更新完成：新增 ${added}，覆蓋更新 ${updated}。共 ${DB.length} 筆`;
+    setLog(msg,true);
+    const b=$('dataSourceBadge');b.textContent=`● 日頻更新 (${DB.length}筆)`;b.style.color='var(--accent)';
+    saveToStorage();
+    // 自動下載更新後的 CSV
+    await new Promise(r=>setTimeout(r,300));
+    exportCSV();
+    alert(msg+'
+
+已自動下載最新 CSV，請覆蓋存檔備用。');
+  }catch(err){setLog('❌ '+err.message,false);console.error(err);alert('❌ 更新失敗：'+err.message);}
+  finally{$('loadingOverlay').classList.add('hidden');}
+}
+
 
 async function fetchYfMonthly(ticker,proxies){
   const url=`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=max&interval=1mo`;
@@ -1135,8 +1178,8 @@ async function fetchMomData(){
 // 以滾動歷史分布（最多252筆）為基準，只有統計上顯著的異常（>zThresh σ）才扣分
 // direction=1：懲罰偏高值（HY動量↑）；direction=-1：懲罰偏低值（寬度動量↓）
 // zThresh→0分，3.0σ→maxPenalty，線性插值
-function zScorePenalty(series,current,direction,zThresh,maxPenalty){
-  const n=Math.min(series.length,252); if(n<20) return 0;
+function zScorePenalty(series,current,direction,zThresh,maxPenalty,wMax,wMin){
+  const n=Math.min(series.length,wMax||252); if(n<(wMin||20)) return 0;
   const vals=series.slice(-n);
   const mean=vals.reduce((a,b)=>a+b,0)/n;
   const std=Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/n)||0.0001;
@@ -1183,8 +1226,12 @@ function getShieldScore(dateStr){
   const curBrdMom=sp0>0&&ew0>0?(ew/sp)/(ew0/sp0)-1:0;
 
   // ── Z-Score 動量懲罰（統計異常才扣分）──
-  const hyPenalty=zScorePenalty(hyMomSeries,curHyMom,1,1.5,15);
-  const brdPenalty=zScorePenalty(breadthMomSeries,curBrdMom,-1,1.5,10);
+  // 即時盾分：根據DB資料自動判斷頻率
+  const dbDiff=DB.length>5?Math.round(
+    (new Date(DB[DB.length-1].d)-new Date(DB[DB.length-6].d))/(5*86400000)):1;
+  const dbMonthly=dbDiff>=15;
+  const hyPenalty=zScorePenalty(hyMomSeries,curHyMom,1,1.5,15,dbMonthly?12:252,dbMonthly?3:20);
+  const brdPenalty=zScorePenalty(breadthMomSeries,curBrdMom,-1,1.5,10,dbMonthly?12:252,dbMonthly?3:20);
 
   return Math.max(0,Math.min(100,base-hyPenalty-brdPenalty));
 }
@@ -1683,8 +1730,8 @@ function runBacktest(){
   if(slice.length<20){alert('區間資料不足，請調整日期。');return;}
   const cfg={
     cap:100000,cost:0.0005,
-    A:{s150:gv('cpA150'),s100:gv('cpA100'),clearDays:gv('cpADays'),dlt:gv('cpADelta'),w:120},
-    B:{s150:gv('cpB150'),s100:gv('cpB100'),clearDays:gv('cpBDays'),z:gv('cpBZ'),w:500},
+    A:{s150:gv('cpA150'),s100:gv('cpA100'),clearDays:toRows(gv('cpADays')),dlt:gv('cpADelta'),w:120},
+    B:{s150:gv('cpB150'),s100:gv('cpB100'),clearDays:toRows(gv('cpBDays')),z:gv('cpBZ'),w:500},
     strk:{n:Math.max(1,Math.round(gv('cpStrkN'))||2),useRsi:gc('useStrkRsi'),rsi:gv('cpRsi'),useVix:gc('useStrkVix'),vix:gv('cpVix'),vixPullback:gc('vixPullback'),vixPbAmt:gv('cpVixPB'),useBias:gc('useStrkBias'),bias:gv('cpBias'),useEWR:gc('useStrkEWR'),ewRatio:gv('cpEWRatio')},
     pos:{plusMult:gv('cpPosPlus'),base:gv('cpPosBase'),strike:gv('cpPosStrk')},
     useRegime:gc('useRegime'),useYC:gc('useYC'),useV8:gc('useV8'),
@@ -1702,6 +1749,36 @@ function runBacktest(){
       // 相對CAPE：預先計算每日ERP，供滾動5年均值使用
       const ALL_ERP=slice.map(r=>(100/(r.cape||30))-(r.tips||1.5));
       const DATES=slice.map(r=>r.d),SP=slice.map(r=>r.sp),EW=slice.map(r=>r.ew);
+
+      // ★ 資料頻率自動偵測
+      // 計算中位數相鄰天數差：日資料≈1, 週資料≈5, 月資料≈21
+      const dateDiffs=[];
+      for(let k=1;k<Math.min(DATES.length,60);k++){
+        const d0=new Date(DATES[k-1]+'T12:00:00'), d1=new Date(DATES[k]+'T12:00:00');
+        dateDiffs.push(Math.round((d1-d0)/86400000));
+      }
+      dateDiffs.sort((a,b)=>a-b);
+      const medianDiff=dateDiffs[Math.floor(dateDiffs.length/2)]||1;
+      // freqScale：日=1, 月≈21
+      // 用來縮放熔斷門檻和停損門檻：月資料時門檻放大
+      const freqScale=Math.max(1,Math.min(medianDiff,25));
+      const isMonthly=freqScale>=15;
+      // 動態閾值（月資料下：熔斷門檻放大4倍、停損門檻放大但上限-8%）
+      const cbT1scaled=cfg.cbT1*(isMonthly?4:1);
+      const cbT2scaled=cfg.cbT2*(isMonthly?4:1);
+      const tsDdScaled=isMonthly?Math.max(cfg.tsDd*2,-0.08):cfg.tsDd;
+      // T+1在月資料下改為「下一筆執行」，語義不變，不需額外調整
+      // ★ 頻率自適應視窗（所有硬編碼筆數統一由此換算）
+      // 日頻(freqScale=1): 原始值；月頻(freqScale=21): 大幅縮小
+      const W_MOM   = isMonthly?3:60;       // 動量回看：3個月 vs 60天
+      const W_EW    = isMonthly?3:20;       // EW/SP Z-Score 窗口
+      const W_RSI   = isMonthly?3:70;       // RSI 暖機筆數
+      const W_ZSCORE= isMonthly?12:252;     // Z-Score 滾動窗口：1年
+      const W_ZMIN  = isMonthly?3:20;       // Z-Score 最小有效筆數
+      const W_RCAPE = isMonthly?60:1260;    // 相對CAPE 5年窗口
+      // clearDays：UI輸入是「天數」，月頻需換算成「筆數」
+      // 日頻2天=2筆；月頻2天≈1筆（不足1個月就取1）
+      const toRows=(days)=>Math.max(1,Math.round(days/freqScale));
       const HY=slice.map(r=>r.hy),TIPS=slice.map(r=>r.tips);
       const VIX=slice.map(r=>r.vix),CAPE=slice.map(r=>r.cape);
       const Y10=slice.map(r=>r.y10),Y2=slice.map(r=>r.y2);
@@ -1723,9 +1800,9 @@ function runBacktest(){
         const hN=HY[i]*100;
         // F1：支援相對CAPE模式（消除長期高估偏差）
         let f1;
-        if(cfg.useRelCape && i>=1260){
-          // 5年（252×5=1260日）滾動ERP均值
-          let erpSum=0; const erpN=Math.min(i,1260);
+        if(cfg.useRelCape && i>=W_RCAPE){
+          // 相對CAPE：5年窗口（日頻=1260筆，月頻=60筆）
+          let erpSum=0; const erpN=Math.min(i,W_RCAPE);
           for(let j=i-erpN;j<i;j++) erpSum+=ALL_ERP[j];
           const erpMean=erpSum/erpN;
           const relErp=ALL_ERP[i]-erpMean; // 偏離均值：正=偏便宜, 負=偏貴
@@ -1742,25 +1819,36 @@ function runBacktest(){
         else shieldBase=f1*0.5+f5b*0.5;
 
         // Z-Score 動量懲罰：以滾動歷史分布為基準，>1.5σ才扣分（上限15/10分）
-        const i60=Math.max(0,i-60);
+        const i60=Math.max(0,i-W_MOM);
         hyMomArr.push(hN-HY[i60]*100);
         const ewI=EW[i]/SP[i],ewI60=EW[i60]/SP[i60];
         breadthMomArr.push(ewI60>0?ewI/ewI60-1:0);
-        const hyPenalty=zScorePenalty(hyMomArr,hyMomArr[hyMomArr.length-1],1,1.5,15);
-        const brdPenalty=zScorePenalty(breadthMomArr,breadthMomArr[breadthMomArr.length-1],-1,1.5,10);
+        const hyPenalty=zScorePenalty(hyMomArr,hyMomArr[hyMomArr.length-1],1,1.5,15,W_ZSCORE,W_ZMIN);
+        const brdPenalty=zScorePenalty(breadthMomArr,breadthMomArr[breadthMomArr.length-1],-1,1.5,10,W_ZSCORE,W_ZMIN);
         shieldBase=Math.max(0,Math.min(100,shieldBase-hyPenalty-brdPenalty));
         let rsi=50;
-        if(i>=70){
-          const w=[SP[i]];
-          for(let j=i-1;j>=0;j--){if(new Date(DATES[j]).getDay()>=new Date(DATES[j+1]).getDay()){w.push(SP[j]);if(w.length===15)break;}}
-          if(w.length===15){w.reverse();let g=0,l=0;for(let k=1;k<15;k++){const d=w[k]-w[k-1];d>=0?g+=d:l-=d;}rsi=100-(100/(1+(g/(l||1))));}
+        if(i>=W_RSI){
+          // 月頻：直接取最近N筆為RSI週期；日頻：用週邊界抓週線
+          let wPrices;
+          if(isMonthly){
+            wPrices=SP.slice(Math.max(0,i-14),i+1); // 取最近15筆月資料
+          } else {
+            wPrices=[SP[i]];
+            for(let j=i-1;j>=0;j--){if(new Date(DATES[j]).getDay()>=new Date(DATES[j+1]).getDay()){wPrices.push(SP[j]);if(wPrices.length===15)break;}}
+          }
+          if(wPrices.length>=5){
+            wPrices=wPrices.slice(0,15).reverse();
+            let g=0,l=0;
+            for(let k=1;k<wPrices.length;k++){const d=wPrices[k]-wPrices[k-1];d>=0?g+=d:l-=d;}
+            rsi=100-(100/(1+(g/(l||1))));
+          }
         }
         let zb=0;
-        if(i>=20){
-          const sl=[];for(let j=i-19;j<=i;j++)sl.push(EW[j]/SP[j]);
-          const m=sl.reduce((a,b)=>a+b)/20;
-          const sd=Math.sqrt(sl.reduce((a,b)=>a+(b-m)**2)/20)||1;
-          zb=(EW[i]/SP[i]-m)/sd;
+        if(i>=W_EW){
+          const sl=[];for(let j=i-W_EW+1;j<=i;j++)sl.push(EW[j]/SP[j]);
+          const mzb=sl.reduce((a,b)=>a+b)/sl.length;
+          const sdzb=Math.sqrt(sl.reduce((a,b)=>a+(b-mzb)**2)/sl.length)||1;
+          zb=(EW[i]/SP[i]-mzb)/sdzb;
         }
         const vixPeak=Math.max(...VIX.slice(Math.max(0,i-20),i+1));
         let spewRelPerf=0;
@@ -1771,11 +1859,12 @@ function runBacktest(){
         const strkHit=evalStrike(cfg,VIX[i],vixPeak,rsi,zb,spewRelPerf);
         const pA=st.A.m,pB=st.B.m;
 
-        // ── 熔斷：當日跌幅觸發 → 覆蓋下一日信號 ──
+        // ── 熔斷：跌幅觸發（門檻依資料頻率自動縮放）──
+        // 日資料：-3%/-5%；月資料：-12%/-20%（×4）
         let cbOverride=null;
         if(cfg.useCB){
-          if(ret<=cfg.cbT2) cbOverride={m:'CLEAR',p:0,tag:'CB2'};
-          else if(ret<=cfg.cbT1) cbOverride={m:'NORMAL',p:cfg.cbL1,tag:'CB1'};
+          if(ret<=cbT2scaled) cbOverride={m:'CLEAR',p:0,tag:'CB2'};
+          else if(ret<=cbT1scaled) cbOverride={m:'NORMAL',p:cfg.cbL1,tag:'CB1'};
         }
         // A（delta 條件：f5b<80 保留下界判斷）
         let mA=hN;for(let j=Math.max(0,i-cfg.A.w);j<i;j++)if(HY[j]*100<mA)mA=HY[j]*100;
@@ -1784,19 +1873,27 @@ function runBacktest(){
         if(sA<cfg.A.s100)st.A.db++;else st.A.db=0;
         let nA=getMode(sA,st.A.db,cfg.A,strkHit,cfg.pos);nA=applyRegime(nA,reg,cfg);
         // T+1：今日執行昨日pending；今日信號存入pending
-        const execA=cfg.useT1?{m:st.A.pendingM,p:st.A.pendingP}:nA;
-        // 浮動停損：若持倉虧損超過停損線 → 強制清倉
+        // T+1：今日執行昨日pending；T+1=OFF時直接用今日信號
+        const execA=cfg.useT1?{m:st.A.pendingM,p:st.A.pendingP}:{m:nA.m,p:nA.p};
+        // BUG3修正：T+1=OFF時，熔斷直接覆蓋今日執行（不只寫pending）
+        if(cbOverride && !cfg.useT1){execA.m=cbOverride.m;execA.p=cbOverride.p;}
+        // 浮動停損（追蹤峰值，非建倉點）
         if(cfg.useTS && execA.m!=='CLEAR'){
-          if(pA==='CLEAR') st.A.entryEq=st.A.eq; // 紀錄建倉基準
-          const drawFromEntry=st.A.entryEq>0?(st.A.eq-st.A.entryEq)/st.A.entryEq:0;
-          if(drawFromEntry<cfg.tsDd){execA.m='CLEAR';execA.p=0;st.A.tsActive=true;}
-          else st.A.tsActive=false;
+          // BUG1修正：entryEq持續更新為持倉期間峰值
+          if(pA==='CLEAR') st.A.entryEq=st.A.eq;          // 建倉時重置
+          else st.A.entryEq=Math.max(st.A.entryEq,st.A.eq); // 持倉期間追高
+          const drawFromPeak=st.A.entryEq>0?(st.A.eq-st.A.entryEq)/st.A.entryEq:0;
+          if(drawFromPeak<tsDdScaled){
+            execA.m='CLEAR';execA.p=0;st.A.tsActive=true;
+            // BUG2修正：停損觸發時鎖定pending，避免明日T+1自動重入
+            nA.m='CLEAR';nA.p=0;
+          } else st.A.tsActive=false;
         }
-        // 熔斷覆蓋：寫入下一日pending（不影響今日執行）
+        // 更新下一日pending（熔斷優先於信號）
         if(cbOverride){st.A.pendingM=cbOverride.m;st.A.pendingP=cbOverride.p;}
         else{st.A.pendingM=nA.m;st.A.pendingP=nA.p;}
         const pnlA=stepEngine(st.A,pA,execA.m,cfg.pos.plusMult,ret,SP[i],costRate);
-        const logModeA=execA.m; // 記錄實際執行模式
+        const logModeA=execA.m;
         if(logModeA!==pA)logs.push({d:DATES[i],mtd:'A',fm:pA,to:logModeA,sp:SP[i].toFixed(1),s:sA,ps:st.A.ps,db:st.A.db,pnl:pnlA});
         st.A.p=execA.p;st.A.m=logModeA;st.A.ps=sA;st.A.s=sA;st.A.f1=Math.round(f1);st.A.f5=Math.round(f5b);st.A.yc=Math.round(ycScore);
         // B
@@ -1808,11 +1905,13 @@ function runBacktest(){
         if(isNaN(sB))sB=st.B.ps;
         if(sB<cfg.B.s100)st.B.db++;else st.B.db=0;
         let nB=getMode(sB,st.B.db,cfg.B,strkHit,cfg.pos);nB=applyRegime(nB,reg,cfg);
-        const execB=cfg.useT1?{m:st.B.pendingM,p:st.B.pendingP}:nB;
+        const execB=cfg.useT1?{m:st.B.pendingM,p:st.B.pendingP}:{m:nB.m,p:nB.p};
+        if(cbOverride && !cfg.useT1){execB.m=cbOverride.m;execB.p=cbOverride.p;}
         if(cfg.useTS && execB.m!=='CLEAR'){
           if(pB==='CLEAR') st.B.entryEq=st.B.eq;
-          const drawFromEntryB=st.B.entryEq>0?(st.B.eq-st.B.entryEq)/st.B.entryEq:0;
-          if(drawFromEntryB<cfg.tsDd){execB.m='CLEAR';execB.p=0;}
+          else st.B.entryEq=Math.max(st.B.entryEq,st.B.eq);
+          const drawFromPeakB=st.B.entryEq>0?(st.B.eq-st.B.entryEq)/st.B.entryEq:0;
+          if(drawFromPeakB<tsDdScaled){execB.m='CLEAR';execB.p=0;nB.m='CLEAR';nB.p=0;}
         }
         if(cbOverride){st.B.pendingM=cbOverride.m;st.B.pendingP=cbOverride.p;}
         else{st.B.pendingM=nB.m;st.B.pendingP=nB.p;}
@@ -1837,14 +1936,17 @@ function runBacktest(){
         else if(cA)nMD=st.A.m;else if(cB)nMD=st.B.m;
         const prevMD=st.D.m;
         const execD=cfg.useT1?st.D.pendingM:nMD;
-        if(cfg.useTS && execD!=='CLEAR'){
+        // T+1=OFF時熔斷直接覆蓋今日
+        const execDfinal=cbOverride&&!cfg.useT1?cbOverride.m:execD;
+        if(cfg.useTS && execDfinal!=='CLEAR'){
           if(prevMD==='CLEAR') st.D.entryEq=st.D.eq;
-          const drawFromEntryD=st.D.entryEq>0?(st.D.eq-st.D.entryEq)/st.D.entryEq:0;
-          if(drawFromEntryD<cfg.tsDd) st.D.pendingM='CLEAR';
+          else st.D.entryEq=Math.max(st.D.entryEq,st.D.eq);
+          const drawFromPeakD=st.D.entryEq>0?(st.D.eq-st.D.entryEq)/st.D.entryEq:0;
+          if(drawFromPeakD<tsDdScaled){nMD='CLEAR';} // 停損鎖定信號
         }
         if(cbOverride) st.D.pendingM=cbOverride.m; else st.D.pendingM=nMD;
-        const pnlD=stepEngine(st.D,prevMD,cfg.useT1?execD:nMD,cfg.pos.plusMult,ret,SP[i],costRate);
-        const logModeD=cfg.useT1?execD:nMD;
+        const pnlD=stepEngine(st.D,prevMD,execDfinal,cfg.pos.plusMult,ret,SP[i],costRate);
+        const logModeD=execDfinal;
         if(logModeD!==prevMD)logs.push({d:DATES[i],mtd:'D',fm:prevMD,to:logModeD,sp:SP[i].toFixed(1),s:'--',ps:'--',db:'--',pnl:pnlD});
         st.D.m=logModeD;
         st.BH.eq=cfg.cap*(SP[i]/sp0);
@@ -1858,7 +1960,7 @@ function runBacktest(){
         if(!yrD[yr])yrD[yr]={};
         ['A','B','C','D','BH'].forEach(k=>{if(yrD[yr][k]===undefined)yrD[yr][k]={s:eqs[k],e:eqs[k]};yrD[yr][k].e=eqs[k];});
       }
-      BT_RESULT={cv,yrD,logs,mdd:mddArr,st,cfgA:cfg.A,cfgB:cfg.B,cfgPos:cfg.pos,cfgLast:cfg};
+      BT_RESULT={cv,yrD,logs,mdd:mddArr,st,cfgA:cfg.A,cfgB:cfg.B,cfgPos:cfg.pos,cfgLast:cfg,freqInfo:{medianDiff,isMonthly,freqScale,cbT1scaled,cbT2scaled,tsDdScaled}};
       renderUI();
     }catch(err){alert('回測失敗：'+err.message);console.error(err);}
     finally{$('loadingOverlay').classList.add('hidden');switchTab({target:document.querySelectorAll('.tab')[2]},'result');}
@@ -1871,6 +1973,18 @@ function renderUI(){
   const regLabel={'ON':'牛市 ON','OFF':'熊市 OFF','MID':'中性 MID','N':'停用'};
   const rb=$('regimeBadge');
   rb.textContent='Regime: '+(regLabel[st.regime]||'--');
+  // 顯示資料頻率偵測結果
+  if(r.freqInfo){
+    const fi=r.freqInfo;
+    const freqBadge=document.getElementById('freqBadge');
+    if(freqBadge){
+      freqBadge.textContent=fi.isMonthly?
+        `📅 月頻（${fi.medianDiff}日/筆）熔斷×4 停損${(fi.tsDdScaled*100).toFixed(0)}%`:
+        `📅 日頻（${fi.medianDiff}日/筆）`;
+      freqBadge.style.color=fi.isMonthly?'var(--yellow)':'var(--green)';
+      freqBadge.style.borderColor=fi.isMonthly?'var(--yellow)':'var(--green)';
+    }
+  }
   rb.style.background=st.regime==='ON'?'var(--green-dim)':st.regime==='OFF'?'var(--red-dim)':st.regime==='MID'?'var(--yellow-dim)':'var(--surface2)';
   rb.style.color=regColor[st.regime]||'var(--muted)';rb.style.borderColor=regColor[st.regime]||'var(--border)';
   const liveCard=(k,title,color,showScore)=>{
