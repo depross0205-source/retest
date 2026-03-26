@@ -961,14 +961,12 @@ async function fetchFB(url,proxies){
   throw lastErr||new Error('\u6240\u6709 Proxy \u5931\u6557');
 }
 
+// ★ Yahoo 單段抓取（用於「每日更新」短區間，fromDate 必填）
 async function fetchYfDaily(ticker,proxies,fromDate){
   setLog('\ud83d\udd04 Yahoo: '+ticker+'...');
   $('loadingText').textContent='\u6293\u53d6 '+ticker;
-  var url='https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?range=max&interval=1d';
-  if(fromDate){
-    var t=Math.floor(new Date(fromDate).getTime()/1000);
-    url='https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?period1='+t+'&period2=9999999999&interval=1d';
-  }
+  var t=Math.floor(new Date(fromDate||'2020-01-01').getTime()/1000);
+  var url='https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?period1='+t+'&period2=9999999999&interval=1d';
   var res=await fetchFB(url,proxies);
   var j=await res.json();
   var d={},chart=j&&j.chart&&j.chart.result&&j.chart.result[0];
@@ -980,6 +978,44 @@ async function fetchYfDaily(ticker,proxies,fromDate){
     if(val&&val>0) d[new Date(ts*1000).toISOString().slice(0,10)]=val;
   });
   return d;
+}
+
+// ★ Yahoo 分段抓取（「完整下載」用，2年一段避免 range=max 被降採樣成月頻）
+async function fetchYfDailyChunked(ticker,proxies,startDateStr){
+  var startMs=new Date(startDateStr||'2003-01-01').getTime();
+  var endMs=Date.now()+86400000;
+  var CHUNK_MS=2*365.25*24*3600*1000;
+  var allData={};
+  var cur=startMs;
+  var totalChunks=Math.ceil((endMs-startMs)/CHUNK_MS);
+  var chunkNum=0;
+  while(cur<endMs){
+    var next=Math.min(cur+CHUNK_MS,endMs);
+    var p1=Math.floor(cur/1000);
+    var p2=Math.floor(next/1000);
+    var url='https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?period1='+p1+'&period2='+p2+'&interval=1d';
+    chunkNum++;
+    var curDate=new Date(cur).toISOString().slice(0,7);
+    setLog('\ud83d\udd04 Yahoo: '+ticker+' \u7b2c'+chunkNum+'/'+totalChunks+'\u6bb5 ('+curDate+')');
+    $('loadingText').textContent=ticker+' '+curDate;
+    try{
+      var res=await fetchFB(url,proxies);
+      var j=await res.json();
+      var chart=j&&j.chart&&j.chart.result&&j.chart.result[0];
+      if(chart&&chart.timestamp){
+        chart.timestamp.forEach(function(ts,i){
+          var adj=chart.indicators&&chart.indicators.adjclose&&chart.indicators.adjclose[0]?chart.indicators.adjclose[0].adjclose[i]:null;
+          var cl=chart.indicators&&chart.indicators.quote&&chart.indicators.quote[0]?chart.indicators.quote[0].close[i]:null;
+          var val=adj!==null?adj:cl;
+          if(val&&val>0) allData[new Date(ts*1000).toISOString().slice(0,10)]=val;
+        });
+      }
+    }catch(e){ console.warn(ticker+' '+curDate+' failed:'+e.message); }
+    await new Promise(function(r){setTimeout(r,350);});
+    cur=next;
+  }
+  setLog('\u2705 '+ticker+' \u5206\u6bb5\u5b8c\u6210\uff1a'+Object.keys(allData).length+'\u7b46');
+  return allData;
 }
 
 async function fetchFredSeries(id,key,proxies,fromDate){
@@ -1079,21 +1115,24 @@ async function fetchFullHistory(){
   if(!key){alert('\u8acb\u586b\u5beb FRED API Key');return;}
   var proxies=buildProxies();
   $('loadingOverlay').classList.remove('hidden');
-  setLog('\ud83c\udf10 \u5b8c\u6574\u65e5\u983b\u4e0b\u8f09\u4e2d...\uff08\u7d04\u963030\u79d2\uff09');
+  setLog('\ud83c\udf10 \u5b8c\u6574\u65e5\u983b\u4e0b\u8f09\u4e2d...\uff08\u5206\u6bb5\u6293\u53d6\uff0c\u7d04\u9630 1-2 \u5206\u9418\uff09');
   try{
-    var spD  = await fetchYfDaily('SPY',proxies);
-    var ewRspD = await fetchYfDaily('RSP',proxies);
+    // ★ SPY/RSP 改用分段抓取（2年一段），避免 range=max 被 Yahoo 降採樣成月頻
+    var spD   = await fetchYfDailyChunked('SPY',proxies,'2003-01-01');
+    var ewRspD= await fetchYfDailyChunked('RSP',proxies,'2003-01-01');
     var ewPreD={};
     try{
       setLog('\ud83d\udd04 Yahoo: ^SP500EWI...');
       $('loadingText').textContent='\u6293\u53d6 ^SP500EWI';
-      ewPreD=await fetchYfDaily('^SP500EWI',proxies);
-    }catch(e){ setLog('\u26a0 ^SP500EWI \u6293\u53d6\u5931\u6557'); }
-    var vixD = await fetchYfDaily('^VIX',proxies);
-    var hyD  = await fetchFredSeries('BAMLH0A0HYM2',key,proxies);
-    var tipD = await fetchFredSeries('DFII10',key,proxies);
-    var y10D = await fetchFredSeries('DGS10',key,proxies);
-    var y2D  = await fetchFredSeries('DGS2',key,proxies);
+      // ^SP500EWI 也用分段
+      ewPreD=await fetchYfDailyChunked('^SP500EWI',proxies,'2003-01-01');
+    }catch(e){ setLog('\u26a0 ^SP500EWI \u5931\u6557\uff0c2003\u524d EW \u7528 SPY \u4ee3\u66ff'); }
+    // ★ VIX 改用 FRED VIXCLS（真正日頻，不走 Yahoo ^VIX 避免月頻問題）
+    var vixD  = await fetchFredSeries('VIXCLS',key,proxies);
+    var hyD   = await fetchFredSeries('BAMLH0A0HYM2',key,proxies);
+    var tipD  = await fetchFredSeries('DFII10',key,proxies);
+    var y10D  = await fetchFredSeries('DGS10',key,proxies);
+    var y2D   = await fetchFredSeries('DGS2',key,proxies);
     var capeByMonth = await fetchCapeMonthly(proxies);
     setLog('\u6574\u4f75\u8cc7\u6599\u4e2d...');
     DB=[];
@@ -1106,7 +1145,6 @@ async function fetchFullHistory(){
     saveToStorage();
     await new Promise(function(r){setTimeout(r,300);});
     exportCSV();
-    // ★ FIX #1: 改用 \n 避免裸換行導致 SyntaxError
     alert(msg+'\n\n\u5df2\u81ea\u52d5\u4e0b\u8f09 CSV\uff0c\u8acb\u5b58\u5230\u624b\u6a5f/\u96fb\u8166\u5099\u7528\u3002\n\u6bcf\u65e5\u64cd\u4f5c\uff1a\u4e0a\u50b3\u6b64 CSV \u2192 \u9ede\u300c\u6bcf\u65e5\u66f4\u65b0\u300d\u2192 \u518d\u4e0b\u8f09\u8986\u84cb\u5132\u5b58\u3002');
   }catch(err){setLog('\u274c '+err.message,false);console.error(err);alert('\u274c \u4e0b\u8f09\u5931\u6557\uff1a'+err.message);}
   finally{$('loadingOverlay').classList.add('hidden');}
@@ -1127,7 +1165,8 @@ async function fetchDailyUpdate(){
   try{
     var spD  = await fetchYfDaily('SPY',proxies,fromDate);
     var ewRspD = await fetchYfDaily('RSP',proxies,fromDate);
-    var vixD = await fetchYfDaily('^VIX',proxies,fromDate);
+    // ★ VIX 改用 FRED VIXCLS
+    var vixD = await fetchFredSeries('VIXCLS',key,proxies,fromDate);
     var hyD  = await fetchFredSeries('BAMLH0A0HYM2',key,proxies,fromDate);
     var tipD = await fetchFredSeries('DFII10',key,proxies,fromDate);
     var y10D = await fetchFredSeries('DGS10',key,proxies,fromDate);
