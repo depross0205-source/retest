@@ -370,6 +370,22 @@ td{padding:9px;border-bottom:1px solid var(--border)}
   <div class="cfg-row"><span>斜率上界（→100分）</span><input type="number" id="ycHi" value="2.0" step="0.1"></div>
 </div>
 </div>
+<div class="cfg-box">
+  <div class="cfg-label" style="color:var(--red)">熔斷 &amp; 執行控制</div>
+  <div class="toggle-row"><span>T+1 次日執行模擬</span><label class="tog"><input type="checkbox" id="useT1" checked><span class="tog-sl"></span></label></div>
+  <div style="font-size:10px;color:var(--muted);margin-bottom:6px;line-height:1.5;background:var(--surface2);padding:4px 7px;border-radius:3px">信號T日收盤後產生，T+1開盤執行<br>更真實反映實際交易時序</div>
+  <div class="toggle-row"><span>日內熔斷</span><label class="tog"><input type="checkbox" id="useCB" checked><span class="tog-sl"></span></label></div>
+  <div class="cfg-row"><span>熔斷一 跌幅 (%)</span><input type="number" id="cbThresh1" value="-3" step="0.5"></div>
+  <div class="cfg-row"><span>→ 倉位降至 (%)</span><input type="number" id="cbTarget1" value="50" step="10"></div>
+  <div class="cfg-row"><span>熔斷二 跌幅 (%)</span><input type="number" id="cbThresh2" value="-5" step="0.5"></div>
+  <div class="cfg-row"><span>→ 倉位降至 (%)</span><input type="number" id="cbTarget2" value="0" step="10"></div>
+  <div class="toggle-row"><span>浮動停損</span><label class="tog"><input type="checkbox" id="useTS" checked><span class="tog-sl"></span></label></div>
+  <div class="cfg-row"><span>停損線（從建倉MDD%）</span><input type="number" id="tsDd" value="-15" step="1"></div>
+  <div class="cfg-label" style="color:var(--accent);margin-top:8px">F1 相對CAPE</div>
+  <div class="toggle-row"><span>相對CAPE（滾動5年基準）</span><label class="tog"><input type="checkbox" id="useRelCape"><span class="tog-sl"></span></label></div>
+  <div style="font-size:10px;color:var(--muted);line-height:1.5;background:var(--surface2);padding:4px 7px;border-radius:3px">50分=當前ERP等於5年均值<br>消除CAPE長期高估的結構偏差</div>
+</div>
+</div>
 </div>
 
 <!-- ══ 績效 ══ -->
@@ -1672,19 +1688,29 @@ function runBacktest(){
     strk:{n:Math.max(1,Math.round(gv('cpStrkN'))||2),useRsi:gc('useStrkRsi'),rsi:gv('cpRsi'),useVix:gc('useStrkVix'),vix:gv('cpVix'),vixPullback:gc('vixPullback'),vixPbAmt:gv('cpVixPB'),useBias:gc('useStrkBias'),bias:gv('cpBias'),useEWR:gc('useStrkEWR'),ewRatio:gv('cpEWRatio')},
     pos:{plusMult:gv('cpPosPlus'),base:gv('cpPosBase'),strike:gv('cpPosStrk')},
     useRegime:gc('useRegime'),useYC:gc('useYC'),useV8:gc('useV8'),
+    useT1:gc('useT1'),
+    useCB:gc('useCB'),cbT1:gv('cbThresh1')/100,cbL1:gv('cbTarget1')/100,
+    cbT2:gv('cbThresh2')/100,cbL2:gv('cbTarget2')/100,
+    useTS:gc('useTS'),tsDd:gv('tsDd')/100,
+    useRelCape:gc('useRelCape'),
     regRsiOn:gv('regRsiOn'),regVixOn:gv('regVixOn'),regRsiOff:gv('regRsiOff'),regVixOff:gv('regVixOff'),
     regAllowPlus:gc('regAllowPlus'),regAllowPlusMid:gc('regAllowPlusMid'),ycLo:gv('ycLo'),ycHi:gv('ycHi')
   };
   $('loadingOverlay').classList.remove('hidden'); $('loadingText').textContent='回測運算中...';
   setTimeout(()=>{
     try{
+      // 相對CAPE：預先計算每日ERP，供滾動5年均值使用
+      const ALL_ERP=slice.map(r=>(100/(r.cape||30))-(r.tips||1.5));
       const DATES=slice.map(r=>r.d),SP=slice.map(r=>r.sp),EW=slice.map(r=>r.ew);
       const HY=slice.map(r=>r.hy),TIPS=slice.map(r=>r.tips);
       const VIX=slice.map(r=>r.vix),CAPE=slice.map(r=>r.cape);
       const Y10=slice.map(r=>r.y10),Y2=slice.map(r=>r.y2);
       const N=DATES.length;
       const costRate={cost:cfg.cost,strike:cfg.pos.strike};
-      const mkSt=(eq)=>({eq,m:'NORMAL',p:0,db:0,ps:100,s:100,f1:50,f5:50,yc:50,plusN:0,plusSP:0,plusLastPnL:null});
+      const mkSt=(eq)=>({eq,m:'NORMAL',p:0,db:0,ps:100,s:100,f1:50,f5:50,yc:50,plusN:0,plusSP:0,plusLastPnL:null,
+        pendingM:'NORMAL',pendingP:0,  // T+1：待執行信號
+        entryEq:eq,tsActive:false      // 浮動停損：建倉基準
+      });
       const st={A:mkSt(cfg.cap),B:mkSt(cfg.cap),C:{eq:cfg.cap,m:'NORMAL',p:cfg.pos.base},D:{eq:cfg.cap,m:'NORMAL',p:cfg.pos.base,plusN:0,plusSP:0,plusLastPnL:null},BH:{eq:cfg.cap},regime:'N'};
       const cv=[],yrD={},logs=[];
       const mddArr={A:[],B:[],C:[],D:[],BH:[]};
@@ -1695,7 +1721,18 @@ function runBacktest(){
       for(let i=1;i<N;i++){
         const ret=(SP[i]-SP[i-1])/SP[i-1];
         const hN=HY[i]*100;
-        const f1=lerp((100/CAPE[i])-TIPS[i],0,4,10,90);
+        // F1：支援相對CAPE模式（消除長期高估偏差）
+        let f1;
+        if(cfg.useRelCape && i>=1260){
+          // 5年（252×5=1260日）滾動ERP均值
+          let erpSum=0; const erpN=Math.min(i,1260);
+          for(let j=i-erpN;j<i;j++) erpSum+=ALL_ERP[j];
+          const erpMean=erpSum/erpN;
+          const relErp=ALL_ERP[i]-erpMean; // 偏離均值：正=偏便宜, 負=偏貴
+          f1=lerp(relErp,-2,2,10,90);      // ±2%區間，50=與5年均值相同
+        } else {
+          f1=lerp(ALL_ERP[i],0,4,10,90);
+        }
         // ★★★ 0325 F5刻度校準 + Z-Score動量懲罰 ★★★
         // F5=50 @ HY=350bp, F1=50 @ ERP=2.0%, YC=50 @ 斜率=(ycLo+ycHi)/2
         const f5b=lerp(hN,250,600,66,10);
@@ -1733,15 +1770,35 @@ function runBacktest(){
         st.regime=reg;
         const strkHit=evalStrike(cfg,VIX[i],vixPeak,rsi,zb,spewRelPerf);
         const pA=st.A.m,pB=st.B.m;
+
+        // ── 熔斷：當日跌幅觸發 → 覆蓋下一日信號 ──
+        let cbOverride=null;
+        if(cfg.useCB){
+          if(ret<=cfg.cbT2) cbOverride={m:'CLEAR',p:0,tag:'CB2'};
+          else if(ret<=cfg.cbT1) cbOverride={m:'NORMAL',p:cfg.cbL1,tag:'CB1'};
+        }
         // A（delta 條件：f5b<80 保留下界判斷）
         let mA=hN;for(let j=Math.max(0,i-cfg.A.w);j<i;j++)if(HY[j]*100<mA)mA=HY[j]*100;
         let sA=Math.round(shieldBase-(((hN-mA)>=cfg.A.dlt&&f5b<55)?10:0));
         if(isNaN(sA))sA=st.A.ps;
         if(sA<cfg.A.s100)st.A.db++;else st.A.db=0;
         let nA=getMode(sA,st.A.db,cfg.A,strkHit,cfg.pos);nA=applyRegime(nA,reg,cfg);
-        const pnlA=stepEngine(st.A,pA,nA.m,cfg.pos.plusMult,ret,SP[i],costRate);
-        if(nA.m!==pA)logs.push({d:DATES[i],mtd:'A',fm:pA,to:nA.m,sp:SP[i].toFixed(1),s:sA,ps:st.A.ps,db:st.A.db,pnl:pnlA});
-        st.A.p=nA.p;st.A.m=nA.m;st.A.ps=sA;st.A.s=sA;st.A.f1=Math.round(f1);st.A.f5=Math.round(f5b);st.A.yc=Math.round(ycScore);
+        // T+1：今日執行昨日pending；今日信號存入pending
+        const execA=cfg.useT1?{m:st.A.pendingM,p:st.A.pendingP}:nA;
+        // 浮動停損：若持倉虧損超過停損線 → 強制清倉
+        if(cfg.useTS && execA.m!=='CLEAR'){
+          if(pA==='CLEAR') st.A.entryEq=st.A.eq; // 紀錄建倉基準
+          const drawFromEntry=st.A.entryEq>0?(st.A.eq-st.A.entryEq)/st.A.entryEq:0;
+          if(drawFromEntry<cfg.tsDd){execA.m='CLEAR';execA.p=0;st.A.tsActive=true;}
+          else st.A.tsActive=false;
+        }
+        // 熔斷覆蓋：寫入下一日pending（不影響今日執行）
+        if(cbOverride){st.A.pendingM=cbOverride.m;st.A.pendingP=cbOverride.p;}
+        else{st.A.pendingM=nA.m;st.A.pendingP=nA.p;}
+        const pnlA=stepEngine(st.A,pA,execA.m,cfg.pos.plusMult,ret,SP[i],costRate);
+        const logModeA=execA.m; // 記錄實際執行模式
+        if(logModeA!==pA)logs.push({d:DATES[i],mtd:'A',fm:pA,to:logModeA,sp:SP[i].toFixed(1),s:sA,ps:st.A.ps,db:st.A.db,pnl:pnlA});
+        st.A.p=execA.p;st.A.m=logModeA;st.A.ps=sA;st.A.s=sA;st.A.f1=Math.round(f1);st.A.f5=Math.round(f5b);st.A.yc=Math.round(ycScore);
         // B
         const slB=HY.slice(Math.max(0,i-cfg.B.w),i);
         const mB=slB.reduce((a,b)=>a+b,0)/slB.length;
@@ -1751,9 +1808,18 @@ function runBacktest(){
         if(isNaN(sB))sB=st.B.ps;
         if(sB<cfg.B.s100)st.B.db++;else st.B.db=0;
         let nB=getMode(sB,st.B.db,cfg.B,strkHit,cfg.pos);nB=applyRegime(nB,reg,cfg);
-        const pnlB=stepEngine(st.B,pB,nB.m,cfg.pos.plusMult,ret,SP[i],costRate);
-        if(nB.m!==pB)logs.push({d:DATES[i],mtd:'B',fm:pB,to:nB.m,sp:SP[i].toFixed(1),s:sB,ps:st.B.ps,db:st.B.db,pnl:pnlB});
-        st.B.p=nB.p;st.B.m=nB.m;st.B.ps=sB;st.B.s=sB;st.B.f1=Math.round(f1);st.B.f5=Math.round(f5b);st.B.yc=Math.round(ycScore);
+        const execB=cfg.useT1?{m:st.B.pendingM,p:st.B.pendingP}:nB;
+        if(cfg.useTS && execB.m!=='CLEAR'){
+          if(pB==='CLEAR') st.B.entryEq=st.B.eq;
+          const drawFromEntryB=st.B.entryEq>0?(st.B.eq-st.B.entryEq)/st.B.entryEq:0;
+          if(drawFromEntryB<cfg.tsDd){execB.m='CLEAR';execB.p=0;}
+        }
+        if(cbOverride){st.B.pendingM=cbOverride.m;st.B.pendingP=cbOverride.p;}
+        else{st.B.pendingM=nB.m;st.B.pendingP=nB.p;}
+        const pnlB=stepEngine(st.B,pB,execB.m,cfg.pos.plusMult,ret,SP[i],costRate);
+        const logModeB=execB.m;
+        if(logModeB!==pB)logs.push({d:DATES[i],mtd:'B',fm:pB,to:logModeB,sp:SP[i].toFixed(1),s:sB,ps:st.B.ps,db:st.B.db,pnl:pnlB});
+        st.B.p=execB.p;st.B.m=logModeB;st.B.ps=sB;st.B.s=sB;st.B.f1=Math.round(f1);st.B.f5=Math.round(f5b);st.B.yc=Math.round(ycScore);
         // C
         const bA=(st.A.m==='NORMAL'||st.A.m==='PLUS'),bpA=(pA==='NORMAL'||pA==='PLUS');
         const bB=(st.B.m==='NORMAL'||st.B.m==='PLUS'),bpB=(pB==='NORMAL'||pB==='PLUS');
@@ -1770,9 +1836,17 @@ function runBacktest(){
         if(cA&&cB){const rank={'CLEAR':0,'STRIKE':1,'NORMAL':2,'PLUS':3};nMD=rank[st.A.m]<rank[st.B.m]?st.A.m:st.B.m;}
         else if(cA)nMD=st.A.m;else if(cB)nMD=st.B.m;
         const prevMD=st.D.m;
-        const pnlD=stepEngine(st.D,prevMD,nMD,cfg.pos.plusMult,ret,SP[i],costRate);
-        if(nMD!==prevMD)logs.push({d:DATES[i],mtd:'D',fm:prevMD,to:nMD,sp:SP[i].toFixed(1),s:'--',ps:'--',db:'--',pnl:pnlD});
-        st.D.m=nMD;
+        const execD=cfg.useT1?st.D.pendingM:nMD;
+        if(cfg.useTS && execD!=='CLEAR'){
+          if(prevMD==='CLEAR') st.D.entryEq=st.D.eq;
+          const drawFromEntryD=st.D.entryEq>0?(st.D.eq-st.D.entryEq)/st.D.entryEq:0;
+          if(drawFromEntryD<cfg.tsDd) st.D.pendingM='CLEAR';
+        }
+        if(cbOverride) st.D.pendingM=cbOverride.m; else st.D.pendingM=nMD;
+        const pnlD=stepEngine(st.D,prevMD,cfg.useT1?execD:nMD,cfg.pos.plusMult,ret,SP[i],costRate);
+        const logModeD=cfg.useT1?execD:nMD;
+        if(logModeD!==prevMD)logs.push({d:DATES[i],mtd:'D',fm:prevMD,to:logModeD,sp:SP[i].toFixed(1),s:'--',ps:'--',db:'--',pnl:pnlD});
+        st.D.m=logModeD;
         st.BH.eq=cfg.cap*(SP[i]/sp0);
         const eqA=totalEq(st.A,SP[i]),eqB=totalEq(st.B,SP[i]),eqD=totalEq(st.D,SP[i]);
         cv.push({d:DATES[i],A:eqA,B:eqB,C:st.C.eq,D:eqD,BH:st.BH.eq});
