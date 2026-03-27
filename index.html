@@ -1254,22 +1254,35 @@ function getShieldScore(dateStr){
   var f1=lerp(erp,0,4,10,90);
   var f5=lerp((best.hy||3.5)*100,250,600,66,10);
   var base=f1*0.5+f5*0.5;
-  var startIdx=Math.max(0,bestIdx-350);
+  // ★ FIX: 先偵測 DB 頻率，再決定動量窗口
+  // 用前6筆計算中位數間隔天數
+  var dbDiff=1;
+  if(DB.length>5){
+    var diffs=[];
+    for(var di=1;di<=Math.min(6,DB.length-1);di++)
+      diffs.push(Math.round((new Date(DB[bestIdx-di+1]&&DB[bestIdx-di+1].d||DB[bestIdx].d)-new Date(DB[bestIdx-di]&&DB[bestIdx-di].d||DB[bestIdx].d))/86400000));
+    diffs.sort(function(a,b){return a-b;});
+    dbDiff=Math.max(1,diffs[Math.floor(diffs.length/2)]||1);
+  }
+  var dbMonthly=dbDiff>=15;
+  // 動量窗口：日頻60≈3個月，月頻3≈3個月
+  var momW = dbMonthly ? 3 : 60;
+  // 序列建構起點：日頻350≈14個月，月頻18≈18個月
+  var buildW = dbMonthly ? 18 : 350;
+  var startIdx=Math.max(0,bestIdx-buildW);
   var hyMomSeries=[],breadthMomSeries=[];
-  for(var i2=startIdx+60;i2<=bestIdx;i2++){
-    var i60=Math.max(startIdx,i2-60);
+  for(var i2=startIdx+momW;i2<=bestIdx;i2++){
+    var i60=Math.max(startIdx,i2-momW);
     hyMomSeries.push((DB[i2].hy||3.5)*100-(DB[i60].hy||3.5)*100);
     var r=DB[i2],r0=DB[i60];
     var ew=r.ew||r.sp||1,sp=r.sp||1,ew0=r0.ew||r0.sp||1,sp0=r0.sp||1;
     breadthMomSeries.push(sp0>0&&ew0>0?(ew/sp)/(ew0/sp0)-1:0);
   }
-  var ci60=Math.max(0,bestIdx-60);
+  var ci60=Math.max(0,bestIdx-momW);
   var curHyMom=(best.hy||3.5)*100-(DB[ci60].hy||3.5)*100;
   var r0b=DB[ci60];
   var ew2=best.ew||best.sp||1,sp2=best.sp||1,ew02=r0b.ew||r0b.sp||1,sp02=r0b.sp||1;
   var curBrdMom=sp02>0&&ew02>0?(ew2/sp2)/(ew02/sp02)-1:0;
-  var dbDiff=DB.length>5?Math.round((new Date(DB[DB.length-1].d)-new Date(DB[DB.length-6].d))/(5*86400000)):1;
-  var dbMonthly=dbDiff>=15;
   var hyPenalty=zScorePenalty(hyMomSeries,curHyMom,1,1.5,15,dbMonthly?12:252,dbMonthly?3:20);
   var brdPenalty=zScorePenalty(breadthMomSeries,curBrdMom,-1,1.5,10,dbMonthly?12:252,dbMonthly?3:20);
   return Math.max(0,Math.min(100,base-hyPenalty-brdPenalty));
@@ -1674,8 +1687,11 @@ function calcP(cv,k){
   var tr=cv[cv.length-1][k]/cv[0][k]-1;
   var cagr=Math.pow(1+Math.max(tr,-0.999),1/yr)-1;
   var ar=rets.reduce(function(a,b){return a+b;},0)/(rets.length||1);
-  var sd=Math.sqrt(rets.reduce(function(a,b){return a+(b-ar)*(b-ar);},0)/(rets.length||1))*Math.sqrt(252);
-  return{m:(mdd*100).toFixed(2),c:(cagr*100).toFixed(2),s:sd===0?'0':(ar*252/sd).toFixed(2),t:(tr*100).toFixed(1),yr:yr.toFixed(1)};
+  // ★ FIX Bug4: Sharpe 年化係數依資料頻率自動切換（日頻252，月頻12）
+  var isM=BT_RESULT&&BT_RESULT.freqInfo&&BT_RESULT.freqInfo.isMonthly;
+  var annF=isM?12:252;
+  var sd=Math.sqrt(rets.reduce(function(a,b){return a+(b-ar)*(b-ar);},0)/(rets.length||1))*Math.sqrt(annF);
+  return{m:(mdd*100).toFixed(2),c:(cagr*100).toFixed(2),s:sd===0?'0':(ar*annF/sd).toFixed(2),t:(tr*100).toFixed(1),yr:yr.toFixed(1)};
 }
 
 function evalStrike(cfg,vix,vixPeakRecent,rsi,zb,spewRelPerf){
@@ -1771,6 +1787,18 @@ function runBacktest(){
       cfg.A.clearDays=toRows(cfg.A.clearDays);
       cfg.B.clearDays=toRows(cfg.B.clearDays);
 
+      // ★ FIX Bug1: A.w / B.w 以「交易日」為單位設計，需依 freqScale 換算成 rows
+      // 日頻：A.w=120rows=6個月, B.w=500rows=2年（原設計值）
+      // 月頻：A.w=5rows=5個月, B.w=20rows=20個月
+      cfg.A.w = Math.max(5,  toRows(120));
+      cfg.B.w = Math.max(10, toRows(500));
+
+      // ★ FIX Bug2: vixPeak 回顧窗口（原硬編碼20筆，日頻=1個月，月頻=20個月→錯）
+      var W_VIXPEAK = Math.max(1, toRows(20));
+
+      // ★ FIX Bug3: SP/EW 相對表現63日（短打條件④，月頻時63筆=63個月=5年→錯）
+      var W_SPEW63  = Math.max(2, toRows(63));
+
       var W_MOM   = isMonthly?3:60;
       var W_EW    = isMonthly?3:20;
       var W_RSI   = isMonthly?3:70;
@@ -1838,10 +1866,12 @@ function runBacktest(){
           var sdzb=Math.sqrt(sl.reduce(function(a,b){return a+(b-mzb)*(b-mzb);},0)/sl.length)||1;
           zb=(EW[i]/SP[i]-mzb)/sdzb;
         }
-        var vixPeak=Math.max.apply(null,VIX.slice(Math.max(0,i-20),i+1));
+        // ★ FIX Bug2: 使用已換算的 W_VIXPEAK（日頻20筆≈1月，月頻1筆）
+        var vixPeak=Math.max.apply(null,VIX.slice(Math.max(0,i-W_VIXPEAK),i+1));
         var spewRelPerf=0;
-        var lb63=Math.max(0,i-63);
-        if(i>=63&&EW[lb63]>0&&SP[lb63]>0)spewRelPerf=(SP[i]/SP[lb63])/(EW[i]/EW[lb63])-1;
+        // ★ FIX Bug3: 使用已換算的 W_SPEW63（日頻63筆≈3月，月頻3筆）
+        var lb63=Math.max(0,i-W_SPEW63);
+        if(i>=W_SPEW63&&EW[lb63]>0&&SP[lb63]>0)spewRelPerf=(SP[i]/SP[lb63])/(EW[i]/EW[lb63])-1;
         var reg=getRegime(rsi,ycSlope,VIX[i],cfg);
         st.regime=reg;
         var strkHit=evalStrike(cfg,VIX[i],vixPeak,rsi,zb,spewRelPerf);
