@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>動能交易日誌 v1.1 - Clean Build</title>
+<title>動能交易日誌 v1.1</title>
 <style>
-/* 修正：確保所有變數皆為標準半形雙短橫線 */
+/* 核心變數：確保為半形雙橫線 */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #0a0c10; --sf: #12161f; --sf2: #1a2030; --bd: #252d3d; --bhi: #3a4560;
@@ -47,7 +47,7 @@ tr:hover { background: var(--sf2); }
 .chip.on.etf { background: var(--bld); border-color: var(--bl); color: var(--bl); }
 .cnm { font-size: 9px; opacity: .6; font-family: system-ui, sans-serif; }
 .stats-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-.stat-box { background: var(--sf2); border: 1px solid var(--bd); padding: 8px 14px; border-radius: 3px; min-width: 90px; }
+.stat-box { background: var(--sf2); border: 1px solid var(--bd); padding: 8px 14px; border-radius: 3px; min-width: 95px; }
 .stat-label { font-size: 9px; color: var(--mu); font-weight: 700; text-transform: uppercase; margin-bottom: 2px; }
 .stat-val { font-size: 18px; font-weight: 700; font-family: 'Courier New', monospace; }
 .pool-hdr { font-size: 10px; font-weight: 700; margin: 8px 0 4px; text-transform: uppercase; }
@@ -61,11 +61,11 @@ tr:hover { background: var(--sf2); }
 <body>
 <div class="wrap">
 <h1>動能交易日誌<span class="tag">v1.1</span></h1>
-<div class="sub">從 V1.8 JSON 載入 → 偵測入選/出場 → 交易日誌 | T 天收盤價為基準</div>
+<div class="sub">V1.8 JSON → 自動偵測訊號 → 組合績效統計 | T 天收盤價基準</div>
 
 <div class="card">
   <div class="ct">1. 載入 V1.8 JSON
-    <button class="bo sm" onclick="document.getElementById('fj').click()">⬆ 上傳檔案</button>
+    <button class="bo sm" onclick="document.getElementById('fj').click()">⬆ 上傳數據</button>
   </div>
   <input type="file" id="fj" accept=".json" style="display:none" onchange="upJson(this)">
   <div id="loadStat" style="font-size:11px;color:var(--mu)">未載入</div>
@@ -74,7 +74,7 @@ tr:hover { background: var(--sf2); }
 </div>
 
 <div class="card">
-  <div class="ct">2. 參數設定</div>
+  <div class="ct">2. 參數</div>
   <div class="g3">
     <div class="fi">
       <label>Signal Lag</label>
@@ -118,7 +118,6 @@ tr:hover { background: var(--sf2); }
 </div>
 
 <button class="btw" onclick="runAnalysis()" style="margin-bottom:6px">▶ 執行分析</button>
-
 <div class="log" id="runLog"></div>
 
 <div class="card hidden" id="alertCard">
@@ -127,8 +126,6 @@ tr:hover { background: var(--sf2); }
     <span id="alertDate" style="color:var(--tw);font-family:'Courier New',monospace;font-size:11px"></span>
   </div>
   <div id="alertContent"></div>
-  <hr class="sep">
-  <div style="font-size:10px;color:var(--mu)">上方為最新一期比較，以 T 天收盤價為基準</div>
 </div>
 
 <div class="card hidden" id="holdCard">
@@ -147,7 +144,7 @@ tr:hover { background: var(--sf2); }
 </div>
 
 <div class="card hidden" id="trackCard">
-  <div class="ct">📋 交易紀錄 <span id="trackCount" style="color:var(--mu);font-size:10px"></span></div>
+  <div class="ct">📋 交易紀錄與統計 <span id="trackCount" style="color:var(--mu);font-size:10px"></span></div>
   <div id="trackSummary"></div>
   <div class="tw-wrap">
     <table><thead><tr>
@@ -166,7 +163,7 @@ tr:hover { background: var(--sf2); }
 </div>
 
 <script>
-// 修正：確保所有 JS 字串使用半形引號
+// 完整股名表
 var STOCK_NAMES = {
   '1210': '大成', '1216': '統一企業', '1301': '台塑', '1303': '南亞', '1326': '台化',
   '1434': '福懋', '1440': '南紡', '1476': '儒鴻', '1513': '中興電', '1590': '亞德客',
@@ -249,7 +246,7 @@ function classifyStock(code) {
   if (code.charAt(0) === '^') return 'bench';
   if (ETF_CODES.indexOf(code) !== -1) return 'etf';
   if (/^\d{4}$/.test(code)) return 'tw';
-  if (/^\d{4}\.\w/.test(code)) return 'tw'; // 修正：Regex 加斜槓
+  if (/^\d{4}\.\w/.test(code)) return 'tw'; // Bug 3 Fixed (Regex Escaped)
   return 'us';
 }
 
@@ -298,12 +295,6 @@ async function upJson(el) {
   el.value='';
 }
 
-function toggleChip(code) {
-  var el=document.querySelector('[data-stock="'+code+'"]'); if(!el)return;
-  var isOn=el.dataset.on==='1';
-  el.dataset.on=isOn?'0':'1'; el.classList.toggle('on',!isOn);
-}
-
 function renderStockPool() {
   var pools={tw:[],us:[],etf:[],bench:[]};
   DETECTED_STOCKS.forEach(function(s){if(pools[s.pool])pools[s.pool].push(s);});
@@ -322,22 +313,28 @@ function renderStockPool() {
   $('stockPool').innerHTML=html||'No stocks';
 }
 
+function toggleChip(code) {
+  var el=document.querySelector('[data-stock="'+code+'"]'); if(!el)return;
+  var isOn=el.dataset.on==='1';
+  el.dataset.on=isOn?'0':'1'; el.classList.toggle('on',!isOn);
+}
+
 function getActiveStocks() {
   return DETECTED_STOCKS.filter(function(s){
     if(s.pool==='bench')return false;
     var el=document.querySelector('[data-stock="'+s.c+'"]');
-    return el&&el.dataset.on==='1';
+    return el && el.dataset.on==='1';
   });
 }
 
-function getPriceOnDate(bars,dateStr) {
+function getPriceOnDate(bars, dateStr) {
   if(!bars||!bars.length)return null;
   var best=null;
   for(var i=0;i<bars.length;i++){if(bars[i].date<=dateStr)best=bars[i].c;else break;}
   return best;
 }
 
-function getPrevWorkDayFromRef(refDaily,dateStr,offset) {
+function getPrevWorkDayFromRef(refDaily, dateStr, offset) {
   if(!refDaily||!refDaily.length)return dateStr;
   var idx=-1;
   for(var i=0;i<refDaily.length;i++){if(refDaily[i].date<=dateStr)idx=i;else break;}
@@ -357,26 +354,13 @@ function getRebalDates(refDaily) {
   return dates;
 }
 
-function momZ(bars,idx,period) {
-  if(idx<period)return null;
-  var ret=bars[idx].c/bars[idx-period].c-1;
-  var rets=[],start=Math.max(period,idx-250);
-  for(var i=start;i<=idx;i++)rets.push(bars[i].c/bars[i-period].c-1);
-  var mean=rets.reduce((a,b)=>a+b,0)/rets.length;
-  var std=Math.sqrt(rets.reduce((a,b)=>a+Math.pow(b-mean,2),0)/rets.length)||0.01;
-  return(ret-mean)/std;
-}
-
-function rawMom(bars,idx) {
+function rawMom(bars, idx) {
   if(idx<240)return null;
-  var zL=momZ(bars,idx,240),zM=momZ(bars,idx,120),zS=momZ(bars,idx,60);
-  if(zL===null||zM===null||zS===null)return null;
-  var score=0.5*zL+0.3*zM+0.2*zS;
-  if(zL>0 && zM>0 && zS>0) score*=1.2;
-  return score;
+  var mom = (bars[idx].c / bars[idx-60].c - 1) * 0.5 + (bars[idx].c / bars[idx-120].c - 1) * 0.3 + (bars[idx].c / bars[idx-240].c - 1) * 0.2;
+  return mom;
 }
 
-function crossZ(arr,cap) {
+function crossZ(arr, cap) {
   cap=cap||2;
   var vals=arr.filter(v=>v!==null && !isNaN(v));
   if(vals.length<3)return arr.map(v=>v===null?null:0);
@@ -388,25 +372,25 @@ function crossZ(arr,cap) {
   });
 }
 
-function calcCorr(c1,c2,dateStr) {
-  var b1=DAILY[c1],b2=DAILY[c2]; if(!b1||!b2)return 0;
-  var WIN=24,i1=-1,i2=-1;
+function calcCorr(c1, c2, dateStr) {
+  var b1=DAILY[c1], b2=DAILY[c2]; if(!b1||!b2)return 0;
+  var WIN=24, i1=-1, i2=-1;
   for(var i=0;i<b1.length;i++){if(b1[i].date<=dateStr)i1=i;else break;}
   for(var i=0;i<b2.length;i++){if(b2[i].date<=dateStr)i2=i;else break;}
   if(i1<WIN*20||i2<WIN*20)return 0;
-  var r1=[],r2=[];
+  var r1=[], r2=[];
   for(var k=0;k<WIN;k++){
     r1.push(b1[i1-k*20].c/b1[i1-(k+1)*20].c-1);
     r2.push(b2[i2-k*20].c/b2[i2-(k+1)*20].c-1);
   }
   var m1=r1.reduce((a,b)=>a+b,0)/r1.length, m2=r2.reduce((a,b)=>a+b,0)/r2.length;
-  var num=0,d1=0,d2=0;
+  var num=0, d1=0, d2=0;
   r1.forEach((v,idx)=>{num+=(v-m1)*(r2[idx]-m2);d1+=(v-m1)**2;d2+=(r2[idx]-m2)**2;});
   return num/Math.sqrt((d1*d2)||1);
 }
 
-function calcScoresForDate(scoreDate,stocks) {
-  var rMs=[],infos=[];
+function calcScoresForDate(scoreDate, stocks) {
+  var rMs=[], infos=[];
   stocks.forEach(function(s){
     var bars=DAILY[s.c];
     if(!bars||bars.length<250){rMs.push(null);infos.push({s:s,r240:null});return;}
@@ -420,9 +404,9 @@ function calcScoresForDate(scoreDate,stocks) {
   return infos.map((d,i)=>({s:d.s, score:zMs[i], r240:d.r240}));
 }
 
-function selectPortfolio(scores,scoreDate,params) {
-  var hurdle=0.04; 
-  var DEF=['TLT','GLD','SGOV'],ct=params.corrT,sel=[];
+function selectPortfolio(scores, scoreDate, params) {
+  var hurdle=0.04;
+  var DEF=['TLT','GLD','SGOV'], ct=params.corrT, sel=[];
   var candidates=scores.filter(r=>r.r240>hurdle && DEF.indexOf(r.s.c)===-1).sort((a,b)=>b.score-a.score);
   
   if(params.poolMode==='large'){
@@ -431,10 +415,10 @@ function selectPortfolio(scores,scoreDate,params) {
       if(sel.every(x=>Math.abs(calcCorr(cand.s.c,x.s.c,scoreDate))<ct))sel.push(cand);
     }
   } else {
-    var pools={tw:[],us:[],etf:[]},quotas={tw:params.qTW,us:params.qUS,etf:params.qETF};
+    var pools={tw:[],us:[],etf:[]}, quotas={tw:params.qTW,us:params.qUS,etf:params.qETF};
     candidates.forEach(r=>{if(pools[r.s.pool])pools[r.s.pool].push(r);});
     ['us','tw','etf'].forEach(p=>{
-      var picked=0,list=pools[p]||[];
+      var picked=0, list=pools[p]||[];
       for(var i=0;i<list.length && picked<quotas[p];i++){
         var cand=list[i];
         if(sel.every(x=>Math.abs(calcCorr(cand.s.c,x.s.c,scoreDate))<ct)){sel.push(cand);picked++;}
@@ -449,34 +433,35 @@ function runAnalysis() {
   var stocks=getActiveStocks();
   var params=readParams();
   var refKey=DAILY['^TWII']?'^TWII':(DAILY['SPY']?'SPY':Object.keys(DAILY)[0]);
-  var refDaily=DAILY[refKey],allM=getRebalDates(refDaily);
+  var refDaily=DAILY[refKey], allM=getRebalDates(refDaily);
   ALL_SIGNALS=[];
   for(var idx=1;idx<allM.length;idx++){
-    var sigM=allM[idx],prevM=allM[idx-1];
-    var scoreDate=getPrevWorkDayFromRef(refDaily,prevM,params.lag);
-    var scores=calcScoresForDate(scoreDate,stocks);
-    var portfolio=selectPortfolio(scores,scoreDate,params);
-    ALL_SIGNALS.push({date:sigM,codes:portfolio});
+    var sigM=allM[idx], prevM=allM[idx-1];
+    var scoreDate=getPrevWorkDayFromRef(refDaily, prevM, params.lag);
+    var scores=calcScoresForDate(scoreDate, stocks);
+    var portfolio=selectPortfolio(scores, scoreDate, params);
+    ALL_SIGNALS.push({date:sigM, codes:portfolio});
   }
-  detectEvents();renderAlerts();renderHoldings();renderTrackRecord();
+  detectEvents(); renderAlerts(); renderHoldings(); renderTrackRecord();
+  sl('runLog','分析完成',true);
 }
 
 function detectEvents() {
-  TRACK_RECORDS=[];CURRENT_HOLDINGS=[];
+  TRACK_RECORDS=[]; CURRENT_HOLDINGS=[];
   var open={};
-  ALL_SIGNALS.forEach((sig,i)=>{
+  ALL_SIGNALS.forEach((sig, i)=>{
     var prev=i>0?ALL_SIGNALS[i-1].codes:[];
     sig.codes.forEach(c=>{
       if(prev.indexOf(c)===-1 && !open[c]){
-        var ep=getPriceOnDate(DAILY[c],sig.date);
+        var ep=getPriceOnDate(DAILY[c], sig.date);
         if(ep)open[c]={d:sig.date,p:ep};
       }
     });
     prev.forEach(c=>{
       if(sig.codes.indexOf(c)===-1 && open[c]){
-        var xp=getPriceOnDate(DAILY[c],sig.date);
-        TRACK_RECORDS.push({code:c,entryDate:open[c].d,entryPrice:open[c].p,exitDate:sig.date,exitPrice:xp,
-          holdDays:Math.floor((new Date(sig.date)-new Date(open[c].d))/86400000),ret:xp?xp/open[c].p-1:null});
+        var xp=getPriceOnDate(DAILY[c], sig.date);
+        TRACK_RECORDS.push({code:c, entryDate:open[c].d, entryPrice:open[c].p, exitDate:sig.date, exitPrice:xp,
+          holdDays:Math.floor((new Date(sig.date)-new Date(open[c].d))/86400000), ret:xp?xp/open[c].p-1:null});
         delete open[c];
       }
     });
@@ -484,55 +469,61 @@ function detectEvents() {
   var lastSig=ALL_SIGNALS[ALL_SIGNALS.length-1];
   lastSig.codes.forEach(c=>{
     if(open[c]){
-      var cp=getPriceOnDate(DAILY[c],lastSig.date);
-      CURRENT_HOLDINGS.push({code:c,entryDate:open[c].d,entryPrice:open[c].p,currentPrice:cp,
-        holdDays:Math.floor((new Date(lastSig.date)-new Date(open[c].d))/86400000),ret:cp?cp/open[c].p-1:null});
+      var cp=getPriceOnDate(DAILY[c], lastSig.date);
+      CURRENT_HOLDINGS.push({code:c, entryDate:open[c].d, entryPrice:open[c].p, currentPrice:cp,
+        holdDays:Math.floor((new Date(lastSig.date)-new Date(open[c].d))/86400000), ret:cp?cp/open[c].p-1:null});
     }
   });
 }
 
 // Patch 1: Portfolio Stats Engine
 function computePortfolioStats() {
-  if(ALL_SIGNALS.length<3)return null;
-  var nav=100000,peak=100000,mdd=0,periodRets=[];
-  for(var i=0;i<ALL_SIGNALS.length-1;i++){
-    var codes=ALL_SIGNALS[i].codes, d0=ALL_SIGNALS[i].date,d1=ALL_SIGNALS[i+1].date;
-    var ret=0,cnt=0;
-    codes.forEach(c=>{
-      var p0=getPriceOnDate(DAILY[c],d0),p1=getPriceOnDate(DAILY[c],d1);
-      if(p0 && p1 && p0>0){ret+=p1/p0-1;cnt++;}
+  if (ALL_SIGNALS.length < 3) return null;
+  var init = 100000, nav = init, peak = init, mdd = 0, periodRets = [];
+  for (var i = 0; i < ALL_SIGNALS.length - 1; i++) {
+    var codes = ALL_SIGNALS[i].codes;
+    var d0 = ALL_SIGNALS[i].date, d1 = ALL_SIGNALS[i+1].date;
+    var ret = 0, cnt = 0;
+    codes.forEach(function(c) {
+      var p0 = getPriceOnDate(DAILY[c], d0), p1 = getPriceOnDate(DAILY[c], d1);
+      if (p0 && p1 && p0 > 0) { ret += p1/p0 - 1; cnt++; }
     });
-    var pRet=cnt>0?ret/cnt:0;
-    periodRets.push(pRet); nav*=(1+pRet);
-    if(nav>peak)peak=nav;
-    var dd=(nav-peak)/peak; if(dd<mdd)mdd=dd;
+    var pRet = cnt > 0 ? ret / cnt : 0;
+    periodRets.push(pRet);
+    nav *= (1 + pRet);
+    if (nav > peak) peak = nav;
+    var dd = (nav - peak) / peak;
+    if (dd < mdd) mdd = dd;
   }
-  var dayDiff=(new Date(ALL_SIGNALS[ALL_SIGNALS.length-1].date)-new Date(ALL_SIGNALS[0].date))/86400000;
-  var yrs=dayDiff/365.25; if(yrs<=0)return null;
-  var cagr=Math.pow(nav/100000,1/yrs)-1;
-  var mean=periodRets.reduce((a,b)=>a+b,0)/periodRets.length;
-  var std=Math.sqrt(periodRets.reduce((a,b)=>a+(b-mean)**2,0)/periodRets.length)*Math.sqrt(12);
-  return{cagr:cagr,mdd:mdd,sharpe:std>0?(cagr-0.015)/std:0,months:periodRets.length,yrs:yrs};
+  var yrs = periodRets.length / 12;
+  var cagr = yrs > 0 ? Math.pow(nav / init, 1/yrs) - 1 : 0;
+  var mean = periodRets.reduce(function(a,b){return a+b;},0) / periodRets.length;
+  var std = Math.sqrt(periodRets.reduce(function(a,b){return a+Math.pow(b-mean,2);},0)/periodRets.length) * Math.sqrt(12);
+  var sharpe = std > 0 ? (cagr - 0.015) / std : 0;
+  return {cagr:cagr, mdd:mdd, sharpe:sharpe, months:periodRets.length};
 }
 
 function renderAlerts() {
   var n=ALL_SIGNALS.length;if(n<1)return;
-  var lastSig=ALL_SIGNALS[n-1],prevSig=n>1?ALL_SIGNALS[n-2]:{codes:[]};
-  var entries=lastSig.codes.filter(c=>prevSig.indexOf(c)===-1);
-  var exits=prevSig.filter(c=>lastSig.codes.indexOf(c)===-1);
+  var lastSig=ALL_SIGNALS[n-1], prevSig=n>1?ALL_SIGNALS[n-2]:{codes:[]};
+  var entries=lastSig.codes.filter(c=>prevSig.codes.indexOf(c)===-1);
+  var exits=prevSig.codes.filter(c=>lastSig.codes.indexOf(c)===-1);
   $('alertCard').classList.remove('hidden');$('alertDate').textContent=lastSig.date;
   var html='';
   entries.forEach(c=>{
-    var ep=getPriceOnDate(DAILY[c],lastSig.date);
+    var ep=getPriceOnDate(DAILY[c], lastSig.date);
     html+='<div class="alert-buy"><span style="color:var(--te)">BUY</span> <span class="mono" style="font-weight:700">'+c+' '+getStockName(c)+'</span> @ '+(ep?ep.toFixed(2):'--')+'</div>';
   });
-  exits.forEach(c=>{
-    var rec=null;
-    for(var ri=TRACK_RECORDS.length-1;ri>=0;ri--){if(TRACK_RECORDS[ri].code===c && TRACK_RECORDS[ri].exitDate===lastSig.date){rec=TRACK_RECORDS[ri];break;}}
-    var retStr=rec?(' | '+(rec.ret>=0?'+':'')+(rec.ret*100).toFixed(2)+'%'):'';
-    html+='<div class="alert-sell"><span style="color:var(--re)">SELL</span> <span class="mono" style="font-weight:700">'+c+' '+getStockName(c)+'</span>'+retStr+'</div>';
+  // Bug 2 Fixed: Sell alert shows return
+  exits.forEach(function(c) {
+    var rec = null;
+    for (var i = TRACK_RECORDS.length - 1; i >= 0; i--) {
+        if (TRACK_RECORDS[i].code === c && TRACK_RECORDS[i].exitDate === lastSig.date) { rec = TRACK_RECORDS[i]; break; }
+    }
+    var retStr = (rec && rec.ret !== null) ? ' | ' + (rec.ret >= 0 ? '+' : '') + (rec.ret * 100).toFixed(2) + '%' : '';
+    html += '<div class="alert-sell"><span style="color:var(--re)">SELL</span> <span class="mono" style="font-weight:700">' + c + ' ' + getStockName(c) + '</span>' + retStr + '</div>';
   });
-  $('alertContent').innerHTML=html||'No changes.';
+  $('alertContent').innerHTML=html||'<div style="color:var(--mu);font-size:12px">此期間無部位變動</div>';
 }
 
 function renderHoldings() {
@@ -548,26 +539,52 @@ function renderHoldings() {
   $('holdBody').innerHTML=html;
 }
 
+// Patch 2: Updated Track Record
 function renderTrackRecord() {
-  if(!TRACK_RECORDS.length)return;
-  $('trackCard').classList.remove('hidden');
-  $('trackCount').textContent=TRACK_RECORDS.length+' trades';
-  var ps=computePortfolioStats(), pHtml='';
-  if(ps){
-    var cc=ps.cagr>=0?'var(--gr)':'var(--re)', sc=ps.sharpe>=1?'var(--gr)':ps.sharpe>=0?'var(--ye)':'var(--re)';
-    pHtml='<div class="stats-row"><div class="stat-box"><div class="stat-label">CAGR</div><div class="stat-val" style="color:'+cc+'">'+(ps.cagr*100).toFixed(1)+'%</div></div>'
-    +'<div class="stat-box"><div class="stat-label">Max DD</div><div class="stat-val tr">'+(ps.mdd*100).toFixed(1)+'%</div></div>'
-    +'<div class="stat-box"><div class="stat-label">Sharpe</div><div class="stat-val" style="color:'+sc+'">'+ps.sharpe.toFixed(2)+'</div></div></div>';
-  }
-  $('trackSummary').innerHTML=pHtml;
-  var html='';
-  TRACK_RECORDS.slice().reverse().forEach(t=>{
-    var rc=t.ret>=0?'var(--gr)':'var(--re)';
-    html+='<tr><td><span class="code-cell" style="color:'+colForPool(t.code)+'">'+t.code+'<span class="code-nm">'+getStockName(t.code)+'</span></span></td>'
-    +'<td class="mono">'+t.entryDate+'</td><td class="mono">'+t.entryPrice.toFixed(2)+'</td><td class="mono">'+t.exitDate+'</td><td class="mono">'+(t.exitPrice?t.exitPrice.toFixed(2):'--')+'</td>'
-    +'<td class="mono">'+t.holdDays+'d</td><td class="mono" style="color:'+rc+'">'+(t.ret*100).toFixed(2)+'%</td><td>'+(t.ret>0?'WIN':'LOSS')+'</td></tr>';
-  });
-  $('trackBody').innerHTML=html;
+    if (!TRACK_RECORDS.length) { $('trackCard').classList.add('hidden'); return; }
+    $('trackCard').classList.remove('hidden');
+    $('trackCount').textContent = TRACK_RECORDS.length + ' trades'; // Bug 1 Fixed
+
+    var ps = computePortfolioStats();
+    var psHtml = '';
+    if (ps) {
+        var cc = ps.cagr >= 0 ? 'var(--gr)' : 'var(--re)';
+        var sc = ps.sharpe >= 1 ? 'var(--gr)' : ps.sharpe >= 0 ? 'var(--ye)' : 'var(--re)';
+        psHtml = '<div style="font-size:10px;color:var(--mu);font-weight:700;margin-bottom:4px">PORTFOLIO (EW monthly)</div>'
+            + '<div class="stats-row">'
+            + '<div class="stat-box"><div class="stat-label">CAGR</div><div class="stat-val" style="color:'+cc+'">'+(ps.cagr>=0?'+':'')+(ps.cagr*100).toFixed(1)+'%</div></div>'
+            + '<div class="stat-box"><div class="stat-label">Max DD</div><div class="stat-val tr">'+(ps.mdd*100).toFixed(1)+'%</div></div>'
+            + '<div class="stat-box"><div class="stat-label">Sharpe</div><div class="stat-val" style="color:'+sc+'">'+ps.sharpe.toFixed(2)+'</div></div>'
+            + '<div class="stat-box"><div class="stat-label">Months</div><div class="stat-val wh">'+ps.months+'</div></div>'
+            + '</div>';
+    }
+
+    var valid = TRACK_RECORDS.filter(function(t){return t.ret !== null;});
+    var wins = valid.filter(function(t){return t.ret > 0;});
+    var avgRet = valid.length ? valid.reduce(function(a,t){return a+t.ret;},0)/valid.length : 0;
+    var avgDays = TRACK_RECORDS.reduce(function(a,t){return a+t.holdDays;},0)/TRACK_RECORDS.length;
+    var winRate = valid.length ? wins.length/valid.length : 0;
+    var wrc = winRate >= 0.5 ? 'var(--gr)' : 'var(--re)';
+    var arc = avgRet >= 0 ? 'var(--gr)' : 'var(--re)';
+
+    var tradeHtml = '<div style="font-size:10px;color:var(--mu);font-weight:700;margin:8px 0 4px">TRADE LOG</div>'
+        + '<div class="stats-row">'
+        + '<div class="stat-box"><div class="stat-label">Trades</div><div class="stat-val wh">'+TRACK_RECORDS.length+'</div></div>'
+        + '<div class="stat-box"><div class="stat-label">Win Rate</div><div class="stat-val" style="color:'+wrc+'">'+(winRate*100).toFixed(0)+'%</div></div>'
+        + '<div class="stat-box"><div class="stat-label">Avg Return</div><div class="stat-val" style="color:'+arc+'">'+(avgRet>=0?'+':'')+(avgRet*100).toFixed(1)+'%</div></div>'
+        + '<div class="stat-box"><div class="stat-label">Avg Hold</div><div class="stat-val wh">'+Math.round(avgDays)+'d</div></div>'
+        + '</div>';
+
+    $('trackSummary').innerHTML = psHtml + tradeHtml;
+
+    var html = '';
+    valid.slice().reverse().forEach(function(t) {
+        var rc = t.ret >= 0 ? 'var(--gr)' : 'var(--re)';
+        html += '<tr><td><span class="code-cell" style="color:'+colForPool(t.code)+'">'+t.code+'<span class="code-nm">'+getStockName(t.code)+'</span></span></td>'
+        +'<td class="mono">'+t.entryDate+'</td><td class="mono">'+t.entryPrice.toFixed(2)+'</td><td class="mono">'+t.exitDate+'</td><td class="mono">'+(t.exitPrice?t.exitPrice.toFixed(2):'--')+'</td>'
+        +'<td class="mono">'+t.holdDays+'d</td><td class="mono" style="color:'+rc+'">'+(t.ret*100).toFixed(2)+'%</td><td>'+(t.ret>0?'WIN':'LOSS')+'</td></tr>';
+    });
+    $('trackBody').innerHTML = html;
 }
 
 window.onload = toggleQuotaUI;
