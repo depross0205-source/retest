@@ -555,7 +555,13 @@ function calcScoresForDate(scoreDate,stocks){
 function selectPortfolio(scores,scoreDate,params){
   var hurdle=getHurdle(scoreDate,params.spread);
   var DEF=['TLT','GLD','SGOV'],ct=params.corrT,sel=[];
-  var cands=scores.filter(function(r){return r.r240>hurdle&&DEF.indexOf(r.s.c)===-1;})
+  var cands = scores.filter(function(r){
+  return r.r240 > hurdle && r.score > 0;  // 🔥 加 score 條件
+});
+  // 如果沒有股票 → 全進 SGOV
+if(cands.length === 0){
+  return ['SGOV'];
+}
   .sort(function(a,b){return b.score-a.score;});
   if(params.poolMode==='large'){
     for(var i=0;i<cands.length&&sel.length<params.n;i++){
@@ -682,12 +688,19 @@ function computePortfolioStats(){
 var valid = 0;
 
 codes.forEach(function(c){
+  var r;
+
+if(slOn){
+  r = getStopLossReturn(c, d0, d1, slPct);
+} else {
   var p0 = getPriceOnDate(DAILY[c], d0);
   var p1 = getPriceOnDate(DAILY[c], d1);
+  r = (p0 && p1) ? (p1/p0 - 1) : null;
+}
 
-  if(p0 && p1 && p0 > 0){
-    valid++;
-  }
+if(r !== null){
+  ret += weight * r;
+}
 });
 
 if(valid > 0){
@@ -728,6 +741,7 @@ var pRet = ret;
 }
 
 function runAnalysis(){
+  if(scoreDate >= sigM) continue;
   if(!Object.keys(DAILY).length){alert('Upload JSON first');return;}
   var stocks=getActiveStocks();
   if(stocks.length<5){alert('Need 5+ active stocks');return;}
