@@ -555,13 +555,7 @@ function calcScoresForDate(scoreDate,stocks){
 function selectPortfolio(scores,scoreDate,params){
   var hurdle=getHurdle(scoreDate,params.spread);
   var DEF=['TLT','GLD','SGOV'],ct=params.corrT,sel=[];
-  var cands = scores.filter(function(r){
-  return r.r240 > hurdle && r.score > 0;  // 🔥 加 score 條件
-});
-  // 如果沒有股票 → 全進 SGOV
-if(cands.length === 0){
-  return ['SGOV'];
-}
+  var cands=scores.filter(function(r){return r.r240>hurdle&&DEF.indexOf(r.s.c)===-1;})
   .sort(function(a,b){return b.score-a.score;});
   if(params.poolMode==='large'){
     for(var i=0;i<cands.length&&sel.length<params.n;i++){
@@ -655,28 +649,7 @@ function detectEvents(){
     });
   }
 }
-function getStopLossReturn(code, entryDate, exitDate, stopPct){
-  var bars = DAILY[code];
-  if(!bars) return null;
 
-  var entryPrice = getPriceOnDate(bars, entryDate);
-  if(!entryPrice) return null;
-
-  var stopPrice = entryPrice * (1 - stopPct);
-
-  for(var i=0;i<bars.length;i++){
-    var d = bars[i].date;
-    if(d <= entryDate) continue;
-    if(d > exitDate) break;
-
-    if(bars[i].c <= stopPrice){
-      return bars[i].c / entryPrice - 1;
-    }
-  }
-
-  var exitPrice = getPriceOnDate(bars, exitDate);
-  return exitPrice ? (exitPrice / entryPrice - 1) : null;
-}
 function computePortfolioStats(){
   if(ALL_SIGNALS.length<3)return null;
   var initCap=parseFloat($('initCap')?$('initCap').value:'10000')||10000;
@@ -684,41 +657,12 @@ function computePortfolioStats(){
   for(var i=0;i<ALL_SIGNALS.length-1;i++){
     var codes=ALL_SIGNALS[i].codes;
     var d0=ALL_SIGNALS[i].date,d1=ALL_SIGNALS[i+1].date;
-    var ret = 0;
-var valid = 0;
-
-codes.forEach(function(c){
-  var r;
-
-if(slOn){
-  r = getStopLossReturn(c, d0, d1, slPct);
-} else {
-  var p0 = getPriceOnDate(DAILY[c], d0);
-  var p1 = getPriceOnDate(DAILY[c], d1);
-  r = (p0 && p1) ? (p1/p0 - 1) : null;
-}
-
-if(r !== null){
-  ret += weight * r;
-}
-});
-
-if(valid > 0){
-  var weight = 1 / codes.length;  // 🔥 固定權重（關鍵）
-  
-  codes.forEach(function(c){
-    var p0 = getPriceOnDate(DAILY[c], d0);
-    var p1 = getPriceOnDate(DAILY[c], d1);
-
-    if(p0 && p1 && p0 > 0){
-      ret += weight * (p1/p0 - 1);
-    }
-  });
-} else {
-  ret = 0;
-}
-
-var pRet = ret;
+    var ret=0,cnt=0;
+    codes.forEach(function(c){
+      var p0=getPriceOnDate(DAILY[c],d0),p1=getPriceOnDate(DAILY[c],d1);
+      if(p0&&p1&&p0>0){ret+=p1/p0-1;cnt++;}
+    });
+    var pRet=cnt>0?ret/cnt:0;
     periodRets.push(pRet);
     nav*=(1+pRet);
     if(nav>peak)peak=nav;
@@ -741,7 +685,6 @@ var pRet = ret;
 }
 
 function runAnalysis(){
-  if(scoreDate >= sigM) continue;
   if(!Object.keys(DAILY).length){alert('Upload JSON first');return;}
   var stocks=getActiveStocks();
   if(stocks.length<5){alert('Need 5+ active stocks');return;}
