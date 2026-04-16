@@ -673,10 +673,12 @@ function computePortfolioStats(){
   var yrs=(d1-d0)/(365.25*86400000);
   if(yrs<=0)return null;
   var cagr=Math.pow(nav/initCap,1/yrs)-1;
-  var mean=periodRets.reduce(function(a,b){return a+b;},0)/periodRets.length;
+    var mean=periodRets.reduce(function(a,b){return a+b;},0)/periodRets.length;
+  var periodsPerYear=FREQ_MODE==='daily'?252:12;
   var annF=FREQ_MODE==='daily'?Math.sqrt(252):Math.sqrt(12);
   var std=Math.sqrt(periodRets.reduce(function(a,b){return a+Math.pow(b-mean,2);},0)/periodRets.length)*annF;
-  var sharpe=std>0?(cagr-0.015)/std:0;
+  var sharpe=std>0?(mean*periodsPerYear-0.015)/std:0;
+
   var calmar=mdd<0?cagr/Math.abs(mdd):0;
   return{cagr:cagr,mdd:mdd,sharpe:sharpe,calmar:calmar,
   months:periodRets.length,yrs:yrs,terminal:nav,initCap:initCap};
@@ -883,7 +885,8 @@ function renderPerStock(records){
   records.forEach(function(t){if(!map[t.code])map[t.code]=[];map[t.code].push(t);});
   var rows=Object.keys(map).map(function(code){
     var tr=map[code],wins=tr.filter(function(t){return t.ret>0.005;});
-    var totalR=tr.reduce(function(a,t){return a+t.ret;},0);
+    var totalR=tr.reduce(function(a,t){return a*(1+t.ret);},1)-1;
+
     return{code:code,count:tr.length,wr:wins.length/tr.length,avg:totalR/tr.length,tot:totalR};
   }).sort(function(a,b){return b.avg-a.avg;});
   var h='<div style="font-size:10px;color:var(--mu);font-weight:700;margin:12px 0 5px">PER-STOCK PERFORMANCE</div>'
